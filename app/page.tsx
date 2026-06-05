@@ -24,6 +24,7 @@ import {
   makeSessionId,
 } from "@/lib/db";
 import type { SessionMeta, Bookmark } from "@/lib/db";
+import { wordIdxToSentence } from "@/lib/ssml";
 
 export default function Home() {
   // ── API key ──────────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ export default function Home() {
   // ── Page text ─────────────────────────────────────────────────────────────
   const [pageText, setPageText] = useState("");
   const [words, setWords] = useState<string[]>([]);
+  const [startWordIdx, setStartWordIdx] = useState(0);
 
   // ── Session ───────────────────────────────────────────────────────────────
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
@@ -108,35 +110,24 @@ export default function Home() {
     hardStop();
     hasReadRef.current = false;
     setShowBookmarkPrompt(false);
+    setStartWordIdx(0);
 
-    const { text, buf } = await loadPDF(file);
     const sid = makeSessionId(file.name.replace(/\.pdf$/i, ""), file.size);
-
-    // Check if we already have this PDF — if so, resume from saved page
     const existing = sessions.find((s) => s.id === sid);
-    if (existing && existing.lastPage > 1) {
-      // Re-load to the saved page
-      const resumeText = await loadPDFFromData(buf, existing.fileName, existing.lastPage);
-      setPageText(resumeText);
-      setWords(resumeText.split(/\s+/).filter(Boolean));
-    } else {
-      setPageText(text);
-      setWords(text.split(/\s+/).filter(Boolean));
-    }
+    const targetPage = existing?.lastPage ?? 1;
 
-    const pdfDoc = await import("pdfjs-dist").then(({ getDocument, GlobalWorkerOptions }) => {
-      GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      return getDocument({ data: buf.slice(0) }).promise;
-    });
+    // Single load — loadPDF navigates to targetPage directly
+    const { text, buf, totalPages } = await loadPDF(file, targetPage);
+    setPageText(text);
+    setWords(text.split(/\s+/).filter(Boolean));
 
     await persistSession(
       {
         id: sid,
         fileName: file.name.replace(/\.pdf$/i, ""),
         fileSize: file.size,
-        lastPage: existing?.lastPage ?? 1,
-        totalPages: pdfDoc.numPages,
+        lastPage: targetPage,
+        totalPages,
       },
       buf
     );
@@ -148,6 +139,7 @@ export default function Home() {
     hardStop();
     hasReadRef.current = false;
     setShowBookmarkPrompt(false);
+    setStartWordIdx(0);
 
     const data = await getSessionPdf(session.id);
     if (!data) return;
@@ -176,6 +168,7 @@ export default function Home() {
   async function handlePageChange(delta: number) {
     hardStop();
     setShowBookmarkPrompt(false);
+    setStartWordIdx(0);
     const next = pdfState.curPage + delta;
     if (next < 1 || next > pdfState.totalPages) return;
 
@@ -183,10 +176,45 @@ export default function Home() {
     setPageText(text);
     setWords(text.split(/\s+/).filter(Boolean));
 
-    // Persist page position
     if (sessionIdRef.current) {
       await updateSessionPage(sessionIdRef.current, next);
       await refreshSessions();
+    }
+  }
+
+  async function handleGoToPage(n: number) {
+    hardStop();
+    setShowBookmarkPrompt(false);
+    setStartWordIdx(0);
+    if (n < 1 || n > pdfState.totalPages) return;
+
+    const text = await goToPage(n);
+    setPageText(text);
+    setWords(text.split(/\s+/).filter(Boolean));
+
+    if (sessionIdRef.current) {
+      await updateSessionPage(sessionIdRef.current, n);
+      await refreshSessions();
+    }
+  }
+
+  function handleWordClick(idx: number) {
+    setStartWordIdx(idx);
+    // If already playing, restart from that word's sentence
+    if (playState.status === "speaking" || playState.status === "paused" || playState.status === "loading") {
+      const { sentIdx } = wordIdxToSentence(pageText, idx);
+      speakPage({
+        text: pageText,
+        words,
+        apiKey,
+        lang: selLang,
+        voice: selVoice,
+        mode,
+        rate,
+        pitch,
+        pauseMs,
+        startSentenceIdx: sentIdx,
+      });
     }
   }
 
@@ -236,6 +264,7 @@ export default function Home() {
 
   async function handleGoToBookmark(page: number) {
     hardStop();
+    setStartWordIdx(0);
     const text = await goToPage(page);
     setPageText(text);
     setWords(text.split(/\s+/).filter(Boolean));
@@ -250,6 +279,7 @@ export default function Home() {
       resume();
       return;
     }
+    const { sentIdx } = wordIdxToSentence(pageText, startWordIdx);
     speakPage({
       text: pageText,
       words,
@@ -260,10 +290,11 @@ export default function Home() {
       rate,
       pitch,
       pauseMs,
+      startSentenceIdx: sentIdx,
     });
   }, [
     playState.status, resume, speakPage, pageText, words,
-    apiKey, selLang, selVoice, mode, rate, pitch, pauseMs,
+    apiKey, selLang, selVoice, mode, rate, pitch, pauseMs, startWordIdx,
   ]);
 
   // Track reading progress and trigger bookmark prompt on stop
@@ -360,6 +391,8 @@ export default function Home() {
               onPrev={() => handlePageChange(-1)}
               onNext={() => handlePageChange(1)}
               onBookmarkToggle={handleBookmarkToggle}
+              onGoToPage={handleGoToPage}
+              onWordClick={handleWordClick}
             />
 
             <ControlPanel

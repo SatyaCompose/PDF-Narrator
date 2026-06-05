@@ -29,12 +29,14 @@ export function usePlayback() {
   const stopFlagRef = useRef(false);
   const pausedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const genRef = useRef(0);
 
   const setStatus = useCallback((msg: string, status: PlayStatus) => {
     setState((p) => ({ ...p, statusMsg: msg, status }));
   }, []);
 
   const hardStop = useCallback(() => {
+    genRef.current += 1;
     stopFlagRef.current = true;
     pausedRef.current = false;
     if (audioRef.current) {
@@ -63,25 +65,36 @@ export function usePlayback() {
       b64: string,
       sentText: string,
       wordOffset: number,
-      totalWords: number
+      totalWords: number,
+      myGen: number
     ): Promise<void> => {
       return new Promise((res) => {
+        if (genRef.current !== myGen) { res(); return; }
         const audio = new Audio("data:audio/mp3;base64," + b64);
         audioRef.current = audio;
         const sw = sentText.trim().split(/\s+/).filter(Boolean);
 
+        // Character-weighted timing: words with more chars get more time
+        const charCounts = sw.map((w) => w.length);
+        const totalChars = charCounts.reduce((s, c) => s + c, 0) || 1;
+        const cumulative = charCounts.reduce<number[]>((acc, c) => {
+          acc.push((acc[acc.length - 1] ?? 0) + c);
+          return acc;
+        }, []);
+
         audio.addEventListener("loadedmetadata", () => {
           const dur = audio.duration;
           sw.forEach((_, i) => {
+            const frac = (cumulative[i] - charCounts[i]) / totalChars;
             setTimeout(() => {
-              if (stopFlagRef.current) return;
+              if (genRef.current !== myGen) return;
               const idx = wordOffset + i;
               setState((p) => ({
                 ...p,
                 activeWordIdx: idx,
                 progress: Math.min(((idx + 1) / totalWords) * 100, 100),
               }));
-            }, (i / sw.length) * dur * 1000);
+            }, frac * dur * 1000);
           });
         });
 
@@ -89,7 +102,7 @@ export function usePlayback() {
         audio.addEventListener("error", () => res());
 
         const tick = setInterval(() => {
-          if (stopFlagRef.current) {
+          if (genRef.current !== myGen || stopFlagRef.current) {
             audio.pause();
             clearInterval(tick);
             res();
@@ -123,11 +136,11 @@ export function usePlayback() {
         allVoices.find((v) => v.lang.startsWith("en"));
 
       let wordOffset = 0;
-      stopFlagRef.current = false;
+      const myGen = genRef.current;
 
       function next(i: number) {
-        if (i >= sentences.length || stopFlagRef.current) {
-          if (!stopFlagRef.current) {
+        if (i >= sentences.length || stopFlagRef.current || genRef.current !== myGen) {
+          if (!stopFlagRef.current && genRef.current === myGen) {
             setState((p) => ({
               ...p,
               status: "done",
@@ -175,12 +188,22 @@ export function usePlayback() {
       rate: number;
       pitch: number;
       pauseMs: number;
+      startSentenceIdx?: number;
     }) => {
-      const { text, words, apiKey, lang, voice, mode, rate, pitch, pauseMs } = params;
+      const { text, words, apiKey, lang, voice, mode, rate, pitch, pauseMs, startSentenceIdx = 0 } = params;
       if (!text) return;
 
+      // Kill any running audio before starting
+      genRef.current += 1;
+      const myGen = genRef.current;
       stopFlagRef.current = false;
       pausedRef.current = false;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      window.speechSynthesis?.cancel();
+
       setState((p) => ({ ...p, status: "loading", progress: 0, activeWordIdx: -1 }));
 
       if (!apiKey) {
@@ -193,12 +216,16 @@ export function usePlayback() {
       }
 
       const sentences = splitSentences(text);
-      let wordOffset = 0;
 
-      for (let i = 0; i < sentences.length; i++) {
-        if (stopFlagRef.current) break;
+      // Pre-compute word offset at startSentenceIdx
+      let wordOffset = sentences
+        .slice(0, startSentenceIdx)
+        .reduce((s, sent) => s + sent.trim().split(/\s+/).filter(Boolean).length, 0);
+
+      for (let i = startSentenceIdx; i < sentences.length; i++) {
+        if (genRef.current !== myGen || stopFlagRef.current) break;
         while (pausedRef.current && !stopFlagRef.current) await sleep(80);
-        if (stopFlagRef.current) break;
+        if (genRef.current !== myGen || stopFlagRef.current) break;
 
         setStatus(`Reading… ${i + 1} / ${sentences.length}`, "speaking");
 
@@ -211,18 +238,19 @@ export function usePlayback() {
             voice
           );
         } catch (e) {
+          if (genRef.current !== myGen) return;
           setStatus("⚠ " + (e instanceof Error ? e.message : "TTS error"), "error");
           return;
         }
 
-        if (stopFlagRef.current) break;
-        await playAudio(b64, sentences[i], wordOffset, words.length);
+        if (genRef.current !== myGen || stopFlagRef.current) break;
+        await playAudio(b64, sentences[i], wordOffset, words.length, myGen);
         wordOffset += sentences[i].trim().split(/\s+/).filter(Boolean).length;
-        if (stopFlagRef.current) break;
+        if (genRef.current !== myGen || stopFlagRef.current) break;
         if (i < sentences.length - 1) await sleep(pauseMs);
       }
 
-      if (!stopFlagRef.current) {
+      if (genRef.current === myGen && !stopFlagRef.current) {
         setState((p) => ({
           ...p,
           status: "done",

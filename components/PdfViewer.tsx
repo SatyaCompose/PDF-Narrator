@@ -1,6 +1,6 @@
 "use client";
 
-import { RefObject } from "react";
+import { RefObject, useState, useEffect } from "react";
 
 interface Props {
   canvasRef: RefObject<HTMLCanvasElement>;
@@ -13,6 +13,8 @@ interface Props {
   onPrev: () => void;
   onNext: () => void;
   onBookmarkToggle: () => void;
+  onGoToPage: (n: number) => void;
+  onWordClick: (idx: number) => void;
 }
 
 export default function PdfViewer({
@@ -26,7 +28,24 @@ export default function PdfViewer({
   onPrev,
   onNext,
   onBookmarkToggle,
+  onGoToPage,
+  onWordClick,
 }: Props) {
+  const [pageInput, setPageInput] = useState(String(curPage));
+
+  useEffect(() => {
+    setPageInput(String(curPage));
+  }, [curPage]);
+
+  function commitPageInput() {
+    const n = parseInt(pageInput, 10);
+    if (!isNaN(n) && n >= 1 && n <= totalPages) {
+      onGoToPage(n);
+    } else {
+      setPageInput(String(curPage));
+    }
+  }
+
   return (
     <div
       className="flex flex-col rounded-2xl overflow-hidden"
@@ -104,12 +123,23 @@ export default function PdfViewer({
           >
             ← Prev
           </button>
-          <span
-            className="text-xs px-2 py-1 rounded"
+          <div
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs"
             style={{ color: "#7a7080", background: "#ede8df" }}
           >
-            {curPage} / {totalPages}
-          </span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onBlur={commitPageInput}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); commitPageInput(); } }}
+              className="w-8 text-center bg-transparent outline-none tabular-nums"
+              style={{ color: "#1a1a2e", MozAppearance: "textfield" } as React.CSSProperties}
+            />
+            <span>/ {totalPages}</span>
+          </div>
           <button
             onClick={onNext}
             disabled={curPage >= totalPages}
@@ -160,7 +190,9 @@ export default function PdfViewer({
           {words.map((w, i) => (
             <span
               key={i}
-              className="inline transition-all duration-75 rounded px-0.5 mr-0.5"
+              onClick={() => onWordClick(i)}
+              className="inline transition-all duration-75 rounded px-0.5 mr-0.5 cursor-pointer"
+              title="Click to start reading from here"
               style={
                 i === activeWordIdx
                   ? {

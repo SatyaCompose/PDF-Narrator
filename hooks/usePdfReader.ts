@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { cleanPageText } from "@/lib/ssml";
+import { cleanPageTextFromItems } from "@/lib/ssml";
+import type { PdfTextItem } from "@/lib/ssml";
 
 export interface PdfState {
   pdfDoc: unknown | null;
@@ -45,8 +46,13 @@ export function usePdfReader() {
       const page = await (doc as any).getPage(pageNum);
       const content = await page.getTextContent();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = (content.items as any[]).map((i) => i.str).join("\n");
-      return cleanPageText(raw);
+      const items = (content.items as any[]).map((i): PdfTextItem => ({
+        str: i.str ?? "",
+        transform: i.transform ?? [1, 0, 0, 1, 0, 0],
+        width: i.width ?? 0,
+        height: i.height ?? 0,
+      }));
+      return cleanPageTextFromItems(items);
     },
     []
   );
@@ -60,7 +66,7 @@ export function usePdfReader() {
 
   // Load from a File (new drop)
   const loadPDF = useCallback(
-    async (file: File, startPage = 1): Promise<{ text: string; buf: ArrayBuffer }> => {
+    async (file: File, startPage = 1): Promise<{ text: string; buf: ArrayBuffer; totalPages: number }> => {
       const getDocument = await initPdfjs();
       const buf = await file.arrayBuffer();
       const doc = await getDocument({ data: buf.slice(0) }).promise;
@@ -79,7 +85,7 @@ export function usePdfReader() {
         pageTexts: { [page]: text },
       });
 
-      return { text, buf };
+      return { text, buf, totalPages: total };
     },
     [renderPage, extractText]
   );
