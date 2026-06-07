@@ -102,83 +102,20 @@ function classifyLine(line: string): "title" | "subtitle" | "body" {
   return "body";
 }
 
-// ─── SSML builder ─────────────────────────────────────────────────────────────
-export function buildSSML(
-  raw: string,
-  mode: ModeKey,
-  rate: number,
-  pitchSt: number,
-  pauseMs: number
-): string {
-  const lines = raw
-    .split(/(?<=[.!?।])\s+|\n|\s{3,}/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const parts: string[] = [];
-
-  for (const line of lines) {
-    const kind = classifyLine(line);
-    const escaped = esc(line);
-
-    if (kind === "title") {
-      const pre = Math.round(pauseMs * 1.8);
-      const post = Math.round(pauseMs * 1.2);
-      parts.push(
-        `<break time="${pre}ms"/>` +
-          `<prosody rate="0.78" pitch="+1st"><emphasis level="strong">${escaped}</emphasis></prosody>` +
-          `<break time="${post}ms"/>`
-      );
-    } else if (kind === "subtitle") {
-      const pre = Math.round(pauseMs * 1.2);
-      const post = Math.round(pauseMs * 0.8);
-      parts.push(
-        `<break time="${pre}ms"/>` +
-          `<prosody rate="0.84" pitch="+0.5st"><emphasis level="moderate">${escaped}</emphasis></prosody>` +
-          `<break time="${post}ms"/>`
-      );
-    } else {
-      let t = escaped;
-      t = t.replace(
-        /([.!?।])\s+([^\s])/g,
-        `$1<break time="${pauseMs}ms"/> $2`
-      );
-
-      if (mode === "teaching") {
-        const cp = Math.round(pauseMs * 0.3);
-        t = t.replace(/,\s+/g, `, <break time="${cp}ms"/>`);
-        t = t.replace(
-          /(Note that|Important|Remember|For example|In other words|Therefore|However|First|Second|Finally)/gi,
-          `<break time="300ms"/><emphasis level="moderate">$1</emphasis><break time="130ms"/>`
-        );
-      } else if (mode === "conversational") {
-        t = t.replace(
-          /,\s+/g,
-          `, <break time="${Math.round(pauseMs * 0.2)}ms"/>`
-        );
-      } else if (mode === "story") {
-        t = t.replace(
-          /,\s+/g,
-          `, <break time="${Math.round(pauseMs * 0.4)}ms"/>`
-        );
-        t = t.replace(
-          /:\s+/g,
-          `: <break time="${Math.round(pauseMs * 0.5)}ms"/>`
-        );
-      }
-      parts.push(t);
-    }
-  }
-
-  const body = parts.join(" ");
-  return `<speak><prosody rate="${rate}" pitch="${pitchSt}st">${body}</prosody></speak>`;
-}
-
 // ─── Sentence splitter ────────────────────────────────────────────────────────
+// Splits ONLY on:
+//   • danda (।), !, ? — always sentence-ending in any language
+//   • newlines — paragraph / line breaks in the source
+//   • period ONLY when followed by a space + uppercase letter (English sentence end)
+// Does NOT split on periods in: numbered items ("1."), abbreviations ("రూ.", "Mr."),
+// decimal numbers, or any non-Latin-uppercase context (Telugu, Hindi, etc.)
 export function splitSentences(text: string): string[] {
-  return (text.match(/[^.!?।]+[.!?।]*\s*/g) ?? [text])
-    .map((s) => s.trim())
-    .filter(Boolean);
+  let s = text.replace(/ {2,}/g, " ").trim();
+  // \x00 (null byte) is a safe split marker — never appears in PDF text
+  s = s.replace(/([।!?])\s*/g, "$1\x00");    // danda, !, ? always end sentences
+  s = s.replace(/\n+/g, "\x00");              // newlines split too
+  s = s.replace(/\.\s+(?=[A-Z])/g, ".\x00"); // period + space + capital (English only)
+  return s.split("\x00").map((x) => x.trim()).filter(Boolean);
 }
 
 // ─── Word-to-sentence mapping ─────────────────────────────────────────────────
@@ -194,4 +131,70 @@ export function wordIdxToSentence(
     offset += wc;
   }
   return { sentIdx: sentences.length - 1, wordOffset: offset };
+}
+
+// ─── SSML builder ─────────────────────────────────────────────────────────────
+// Called once per sentence (speakPage splits via splitSentences first).
+// Inserts <break> tags only at genuine sentence boundaries — danda/!/?,
+// and period-before-capital — never at abbreviation dots or numbered items.
+export function buildSSML(
+  raw: string,
+  mode: ModeKey,
+  rate: number,
+  pitchSt: number,
+  pauseMs: number
+): string {
+  const kind = classifyLine(raw.trim());
+  const escaped = esc(raw);
+  let body: string;
+
+  if (kind === "title") {
+    const pre = Math.round(pauseMs * 1.8);
+    const post = Math.round(pauseMs * 1.2);
+    body =
+      `<break time="${pre}ms"/>` +
+      `<prosody rate="0.78" pitch="+1st"><emphasis level="strong">${escaped}</emphasis></prosody>` +
+      `<break time="${post}ms"/>`;
+  } else if (kind === "subtitle") {
+    const pre = Math.round(pauseMs * 1.2);
+    const post = Math.round(pauseMs * 0.8);
+    body =
+      `<break time="${pre}ms"/>` +
+      `<prosody rate="0.84" pitch="+0.5st"><emphasis level="moderate">${escaped}</emphasis></prosody>` +
+      `<break time="${post}ms"/>`;
+  } else {
+    let t = escaped;
+
+    // Insert explicit breaks only at danda/!/? — genuine sentence ends across all
+    // Indian languages. Periods are intentionally excluded: the pattern ". Capital"
+    // causes false breaks on "Mr. Smith", "No. 5", "Fig. 1", etc., and the TTS
+    // engine's own prosody handles actual English sentence ends correctly.
+    t = t.replace(/([।!?])\s+([^\s])/g, `$1<break time="${pauseMs}ms"/> $2`);
+
+    if (mode === "teaching") {
+      const cp = Math.round(pauseMs * 0.3);
+      t = t.replace(/,\s+/g, `, <break time="${cp}ms"/>`);
+      t = t.replace(
+        /(Note that|Important|Remember|For example|In other words|Therefore|However|First|Second|Finally)/gi,
+        `<break time="300ms"/><emphasis level="moderate">$1</emphasis><break time="130ms"/>`
+      );
+    } else if (mode === "conversational") {
+      t = t.replace(
+        /,\s+/g,
+        `, <break time="${Math.round(pauseMs * 0.2)}ms"/>`
+      );
+    } else if (mode === "story") {
+      t = t.replace(
+        /,\s+/g,
+        `, <break time="${Math.round(pauseMs * 0.4)}ms"/>`
+      );
+      t = t.replace(
+        /:\s+/g,
+        `: <break time="${Math.round(pauseMs * 0.5)}ms"/>`
+      );
+    }
+    body = t;
+  }
+
+  return `<speak><prosody rate="${rate}" pitch="${pitchSt}st">${body}</prosody></speak>`;
 }

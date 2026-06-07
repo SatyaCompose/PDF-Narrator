@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { cleanPageTextFromItems } from "@/lib/ssml";
 import type { PdfTextItem } from "@/lib/ssml";
 
@@ -21,9 +21,20 @@ export function usePdfReader() {
     pageTexts: {},
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderTaskRef = useRef<{ cancel: () => void; promise: Promise<void> } | null>(null);
+  const pendingRenderRef = useRef<{ doc: unknown; page: number } | null>(null);
+  // Ref so capturePageImage always sees the current doc without stale closures
+  const pdfDocRef = useRef<unknown>(null);
 
   const renderPage = useCallback(async (doc: unknown, pageNum: number) => {
     if (!canvasRef.current) return;
+
+    if (renderTaskRef.current) {
+      renderTaskRef.current.cancel();
+      try { await renderTaskRef.current.promise; } catch { /* cancelled */ }
+      renderTaskRef.current = null;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const page = await (doc as any).getPage(pageNum);
     const viewport = page.getViewport({ scale: 1.5 });
@@ -32,8 +43,22 @@ export function usePdfReader() {
     canvas.width = viewport.width;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    const task = page.render({ canvasContext: ctx, viewport });
+    renderTaskRef.current = task;
+    try {
+      await task.promise;
+    } finally {
+      renderTaskRef.current = null;
+    }
   }, []);
+
+  useEffect(() => {
+    if (pendingRenderRef.current && canvasRef.current) {
+      const { doc, page } = pendingRenderRef.current;
+      pendingRenderRef.current = null;
+      renderPage(doc, page);
+    }
+  }, [state.pdfDoc, renderPage]);
 
   const extractText = useCallback(
     async (
@@ -74,8 +99,9 @@ export function usePdfReader() {
       const name = file.name.replace(/\.pdf$/i, "");
       const page = Math.min(Math.max(startPage, 1), total);
 
-      await renderPage(doc, page);
       const text = await extractText(doc, page, {});
+      pdfDocRef.current = doc;
+      pendingRenderRef.current = { doc, page };
 
       setState({
         pdfDoc: doc,
@@ -102,8 +128,9 @@ export function usePdfReader() {
       const total = doc.numPages;
       const page = Math.min(Math.max(startPage, 1), total);
 
-      await renderPage(doc, page);
       const text = await extractText(doc, page, {});
+      pdfDocRef.current = doc;
+      pendingRenderRef.current = { doc, page };
 
       setState({
         pdfDoc: doc,
@@ -117,6 +144,29 @@ export function usePdfReader() {
     },
     [renderPage, extractText]
   );
+
+  // Renders the given page to an off-screen canvas at 2× scale and returns
+  // a base64 JPEG string suitable for Google Vision API OCR.
+  // Uses an independent canvas so it never conflicts with the display render.
+  const capturePageImage = useCallback(async (pageNum: number): Promise<string> => {
+    const doc = pdfDocRef.current;
+    if (!doc) return "";
+    try {
+      const offscreen = document.createElement("canvas");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const page = await (doc as any).getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2.0 });
+      offscreen.width = viewport.width;
+      offscreen.height = viewport.height;
+      const ctx = offscreen.getContext("2d");
+      if (!ctx) return "";
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      // JPEG at 0.92 quality is ~4× smaller than PNG with negligible OCR quality loss
+      return offscreen.toDataURL("image/jpeg", 0.92).split(",")[1];
+    } catch {
+      return "";
+    }
+  }, []);
 
   const goToPage = useCallback(
     async (pageNum: number): Promise<string> => {
@@ -137,5 +187,16 @@ export function usePdfReader() {
     [state, renderPage, extractText]
   );
 
-  return { state, canvasRef, loadPDF, loadPDFFromData, goToPage };
+  const resetPdf = useCallback(() => {
+    pdfDocRef.current = null;
+    setState({
+      pdfDoc: null,
+      curPage: 1,
+      totalPages: 0,
+      fileName: "",
+      pageTexts: {},
+    });
+  }, []);
+
+  return { state, canvasRef, loadPDF, loadPDFFromData, goToPage, resetPdf, capturePageImage };
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
   title: "PDF Narrator — Indian Voices",
@@ -14,13 +15,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body
-        style={{
-          background: "#0d0d0f",
-          minHeight: "100vh",
-          color: "#ddd8f0",
-        }}
-      >
+      <body>
+        <Navbar />
         {children}
       </body>
     </html>

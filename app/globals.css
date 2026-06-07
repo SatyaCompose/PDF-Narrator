@@ -68,10 +68,20 @@ input[type='range']::-moz-range-thumb {
   box-shadow: 0 0 6px rgba(212, 168, 67, 0.4);
 }
 
-/* Pulse animation */
+/* Animations */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 5px rgba(212,168,67,0.5); }
+  50%       { opacity: 0.4; box-shadow: 0 0 2px rgba(212,168,67,0.3); }
 }
 
 /* Selection */

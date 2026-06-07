@@ -1,444 +1,366 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import Header from "@/components/Header";
-import ApiKeyCard from "@/components/ApiKeyCard";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Logo from "@/components/Logo";
 import DropZone from "@/components/DropZone";
-import PdfViewer from "@/components/PdfViewer";
-import ControlPanel from "@/components/ControlPanel";
-import SessionPanel from "@/components/SessionPanel";
-import BookmarkPrompt from "@/components/BookmarkPrompt";
-import { usePdfReader } from "@/hooks/usePdfReader";
-import { usePlayback } from "@/hooks/usePlayback";
-import { VOICES, MODES } from "@/lib/voices";
-import type { Voice, ModeKey } from "@/lib/voices";
 import {
-  saveSession,
-  updateSessionPage,
   getAllSessions,
-  getSessionPdf,
-  deleteSession,
-  addBookmark,
-  getBookmarksForSession,
-  deleteBookmark,
+  saveSession,
   makeSessionId,
+  relativeTime,
+  formatBytes,
 } from "@/lib/db";
-import type { SessionMeta, Bookmark } from "@/lib/db";
-import { wordIdxToSentence } from "@/lib/ssml";
+import type { SessionMeta } from "@/lib/db";
 
-export default function Home() {
-  // ── API key ──────────────────────────────────────────────────────────────
-  const [apiKey, setApiKey] = useState("");
+function progressPct(session: SessionMeta): number {
+  if (!session.totalPages) return 0;
+  return Math.round(((session.lastPage - 1) / session.totalPages) * 100);
+}
 
-  // ── Voice ────────────────────────────────────────────────────────────────
-  const [selLang, setSelLang] = useState("en-IN");
-  const [selVoice, setSelVoice] = useState<Voice>(VOICES["en-IN"][0]);
-
-  // ── Reading controls ──────────────────────────────────────────────────────
-  const [mode, setMode] = useState<ModeKey>("teaching");
-  const [rate, setRate] = useState(MODES[0].rate);
-  const [pitch, setPitch] = useState(0);
-  const [pauseMs, setPauseMs] = useState(MODES[0].pause);
-
-  // ── Page text ─────────────────────────────────────────────────────────────
-  const [pageText, setPageText] = useState("");
-  const [words, setWords] = useState<string[]>([]);
-  const [startWordIdx, setStartWordIdx] = useState(0);
-
-  // ── Session ───────────────────────────────────────────────────────────────
+export default function LandingPage() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
-  const sessionIdRef = useRef<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // ── Bookmarks ─────────────────────────────────────────────────────────────
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-  const [showBookmarkPrompt, setShowBookmarkPrompt] = useState(false);
-  // track whether user has made reading progress (to decide if prompt is worth showing)
-  const hasReadRef = useRef(false);
-
-  const { state: pdfState, canvasRef, loadPDF, loadPDFFromData, goToPage } =
-    usePdfReader();
-  const { state: playState, speakPage, hardStop, pause, resume } =
-    usePlayback();
-
-  // ── Init: load API key + sessions ─────────────────────────────────────────
   useEffect(() => {
-    setApiKey(localStorage.getItem("gcp_key") ?? "");
-    getAllSessions().then(setSessions).catch(console.error);
+    getAllSessions()
+      .then((all) => setSessions(all.slice(0, 3)))
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
-  // ── Save API key ──────────────────────────────────────────────────────────
-  function handleSaveKey(k: string) {
-    localStorage.setItem("gcp_key", k);
-    setApiKey(k);
-  }
-
-  // ── Voice helpers ─────────────────────────────────────────────────────────
-  function handleLangChange(lang: string) {
-    setSelLang(lang);
-    setSelVoice(VOICES[lang][0]);
-  }
-
-  function handleModeChange(m: ModeKey) {
-    const cfg = MODES.find((x) => x.key === m)!;
-    setMode(m);
-    setRate(cfg.rate);
-    setPauseMs(cfg.pause);
-  }
-
-  // ── Session helpers ───────────────────────────────────────────────────────
-  async function refreshSessions() {
-    setSessions(await getAllSessions());
-  }
-
-  async function persistSession(
-    meta: Omit<SessionMeta, "lastRead">,
-    pdfData: ArrayBuffer
-  ) {
-    const full: SessionMeta = { ...meta, lastRead: Date.now() };
-    sessionIdRef.current = full.id;
-    await saveSession(full, pdfData);
-    await refreshSessions();
-  }
-
-  async function loadBookmarks(sid: string) {
-    const bms = await getBookmarksForSession(sid);
-    setBookmarks(bms);
-  }
-
-  // ── Load new PDF from file drop ───────────────────────────────────────────
   async function handleFile(file: File) {
-    hardStop();
-    hasReadRef.current = false;
-    setShowBookmarkPrompt(false);
-    setStartWordIdx(0);
+    const buf = await file.arrayBuffer();
 
-    const sid = makeSessionId(file.name.replace(/\.pdf$/i, ""), file.size);
-    const existing = sessions.find((s) => s.id === sid);
+    // Load pdfjs-dist to get page count
+    const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
+    GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const doc = await getDocument({ data: buf.slice(0) }).promise;
+    const totalPages = doc.numPages;
+    await doc.destroy();
+
+    const fileName = file.name.replace(/\.pdf$/i, "");
+    const sid = makeSessionId(fileName, file.size);
+
+    // Check for existing session to resume from last page
+    const allSessions = await getAllSessions();
+    const existing = allSessions.find((s) => s.id === sid);
     const targetPage = existing?.lastPage ?? 1;
 
-    // Single load — loadPDF navigates to targetPage directly
-    const { text, buf, totalPages } = await loadPDF(file, targetPage);
-    setPageText(text);
-    setWords(text.split(/\s+/).filter(Boolean));
-
-    await persistSession(
+    await saveSession(
       {
         id: sid,
-        fileName: file.name.replace(/\.pdf$/i, ""),
+        fileName,
         fileSize: file.size,
         lastPage: targetPage,
         totalPages,
+        lastRead: Date.now(),
       },
       buf
     );
-    await loadBookmarks(sid);
+
+    sessionStorage.setItem("pendingSessionId", sid);
+    router.push("/reader");
   }
 
-  // ── Resume session from panel ──────────────────────────────────────────────
-  async function handleResume(session: SessionMeta) {
-    hardStop();
-    hasReadRef.current = false;
-    setShowBookmarkPrompt(false);
-    setStartWordIdx(0);
-
-    const data = await getSessionPdf(session.id);
-    if (!data) return;
-
-    const text = await loadPDFFromData(data, session.fileName, session.lastPage);
-    sessionIdRef.current = session.id;
-    setPageText(text);
-    setWords(text.split(/\s+/).filter(Boolean));
-    await loadBookmarks(session.id);
-    // Bump lastRead
-    await updateSessionPage(session.id, session.lastPage);
-    await refreshSessions();
+  function handleResume(s: SessionMeta) {
+    sessionStorage.setItem("pendingSessionId", s.id);
+    router.push("/reader");
   }
 
-  // ── Delete session ────────────────────────────────────────────────────────
-  async function handleDeleteSession(id: string) {
-    await deleteSession(id);
-    await refreshSessions();
-    if (sessionIdRef.current === id) {
-      sessionIdRef.current = null;
-      setBookmarks([]);
-    }
-  }
-
-  // ── Page navigation ───────────────────────────────────────────────────────
-  async function handlePageChange(delta: number) {
-    hardStop();
-    setShowBookmarkPrompt(false);
-    setStartWordIdx(0);
-    const next = pdfState.curPage + delta;
-    if (next < 1 || next > pdfState.totalPages) return;
-
-    const text = await goToPage(next);
-    setPageText(text);
-    setWords(text.split(/\s+/).filter(Boolean));
-
-    if (sessionIdRef.current) {
-      await updateSessionPage(sessionIdRef.current, next);
-      await refreshSessions();
-    }
-  }
-
-  async function handleGoToPage(n: number) {
-    hardStop();
-    setShowBookmarkPrompt(false);
-    setStartWordIdx(0);
-    if (n < 1 || n > pdfState.totalPages) return;
-
-    const text = await goToPage(n);
-    setPageText(text);
-    setWords(text.split(/\s+/).filter(Boolean));
-
-    if (sessionIdRef.current) {
-      await updateSessionPage(sessionIdRef.current, n);
-      await refreshSessions();
-    }
-  }
-
-  function handleWordClick(idx: number) {
-    setStartWordIdx(idx);
-    // If already playing, restart from that word's sentence
-    if (playState.status === "speaking" || playState.status === "paused" || playState.status === "loading") {
-      const { sentIdx } = wordIdxToSentence(pageText, idx);
-      speakPage({
-        text: pageText,
-        words,
-        apiKey,
-        lang: selLang,
-        voice: selVoice,
-        mode,
-        rate,
-        pitch,
-        pauseMs,
-        startSentenceIdx: sentIdx,
-      });
-    }
-  }
-
-  // ── Bookmarks ─────────────────────────────────────────────────────────────
-  async function handleBookmarkToggle() {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    const page = pdfState.curPage;
-    const existing = bookmarks.find((b) => b.page === page);
-
-    if (existing) {
-      await deleteBookmark(existing.id);
-    } else {
-      await addBookmark({
-        id: `${sid}-${page}-${Date.now()}`,
-        sessionId: sid,
-        page,
-        label: `Page ${page}`,
-        createdAt: Date.now(),
-      });
-    }
-    await loadBookmarks(sid);
-  }
-
-  async function handleAddBookmark(label: string) {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    const page = pdfState.curPage;
-    const existing = bookmarks.find((b) => b.page === page);
-    if (!existing) {
-      await addBookmark({
-        id: `${sid}-${page}-${Date.now()}`,
-        sessionId: sid,
-        page,
-        label: label || `Page ${page}`,
-        createdAt: Date.now(),
-      });
-      await loadBookmarks(sid);
-    }
-    setShowBookmarkPrompt(false);
-  }
-
-  async function handleDeleteBookmark(id: string) {
-    await deleteBookmark(id);
-    if (sessionIdRef.current) await loadBookmarks(sessionIdRef.current);
-  }
-
-  async function handleGoToBookmark(page: number) {
-    hardStop();
-    setStartWordIdx(0);
-    const text = await goToPage(page);
-    setPageText(text);
-    setWords(text.split(/\s+/).filter(Boolean));
-    if (sessionIdRef.current) {
-      await updateSessionPage(sessionIdRef.current, page);
-    }
-  }
-
-  // ── Playback ──────────────────────────────────────────────────────────────
-  const handlePlay = useCallback(() => {
-    if (playState.status === "paused") {
-      resume();
-      return;
-    }
-    const { sentIdx } = wordIdxToSentence(pageText, startWordIdx);
-    speakPage({
-      text: pageText,
-      words,
-      apiKey,
-      lang: selLang,
-      voice: selVoice,
-      mode,
-      rate,
-      pitch,
-      pauseMs,
-      startSentenceIdx: sentIdx,
-    });
-  }, [
-    playState.status, resume, speakPage, pageText, words,
-    apiKey, selLang, selVoice, mode, rate, pitch, pauseMs, startWordIdx,
-  ]);
-
-  // Track reading progress and trigger bookmark prompt on stop
-  useEffect(() => {
-    if (playState.status === "done") hasReadRef.current = true;
-  }, [playState.status]);
-
-  function handleStop() {
-    const wasSpeaking =
-      playState.status === "speaking" ||
-      playState.status === "loading" ||
-      playState.status === "paused" ||
-      playState.status === "done";
-    hardStop();
-    if (wasSpeaking && hasReadRef.current && sessionIdRef.current) {
-      const alreadyBookmarked = bookmarks.some(
-        (b) => b.page === pdfState.curPage
-      );
-      if (!alreadyBookmarked) setShowBookmarkPrompt(true);
-    }
-  }
-
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (!pdfState.pdfDoc) return;
-      if (e.target instanceof HTMLInputElement) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (playState.status === "paused") resume();
-        else if (playState.status === "speaking" || playState.status === "loading") pause();
-        else handlePlay();
-      }
-      if (e.code === "Escape") handleStop();
-      const idle = playState.status === "idle" || playState.status === "done";
-      if (e.code === "ArrowRight" && idle) handlePageChange(1);
-      if (e.code === "ArrowLeft" && idle) handlePageChange(-1);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pdfState.pdfDoc, playState.status, resume, pause, handlePlay]);
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-  const hasPdf = !!pdfState.pdfDoc;
-  const isPageBookmarked = bookmarks.some((b) => b.page === pdfState.curPage);
+  const FEATURES = [
+    {
+      icon: "🎙️",
+      title: "Indian Voices",
+      desc: "Standard voices in English, Hindi & Telugu from Google Cloud TTS",
+    },
+    {
+      icon: "✨",
+      title: "Natural Pacing",
+      desc: "SSML-driven modes: Teaching, Fast, Story, Conversational",
+    },
+    {
+      icon: "👁️",
+      title: "OCR Support",
+      desc: "Falls back to Google Vision API for scanned/image-based PDFs",
+    },
+  ];
 
   return (
     <div
       className="min-h-screen"
       style={{
         background:
-          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212,168,67,0.14) 0%, transparent 60%), #faf8f4",
+          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212,168,67,0.18) 0%, transparent 60%), #faf8f4",
       }}
     >
-      <div className="max-w-6xl mx-auto px-4 pb-12">
-        <Header />
+      {/* ── Hero ──────────────────────────────────────────────────────────── */}
+      <section style={{ textAlign: "center", paddingTop: "4rem", paddingBottom: "3rem" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.5rem" }}>
+          <Logo size={72} />
+        </div>
 
-        <ApiKeyCard
-          apiKey={apiKey}
-          onSave={handleSaveKey}
-          selectedLang={selLang}
-          selectedVoice={selVoice}
-          onLangChange={handleLangChange}
-          onVoiceChange={setSelVoice}
-        />
+        <h1
+          style={{
+            fontFamily: "'Playfair Display', serif",
+            fontSize: "clamp(2.2rem, 5vw, 3.5rem)",
+            fontWeight: 700,
+            margin: 0,
+            lineHeight: 1.15,
+            background: "linear-gradient(135deg, #c49530 0%, #d4a843 50%, #c8680a 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          PDF Narrator
+        </h1>
 
-        {!hasPdf && (
-          <>
-            <SessionPanel
-              sessions={sessions}
-              onResume={handleResume}
-              onDelete={handleDeleteSession}
-            />
-            <DropZone onFile={handleFile} />
-          </>
-        )}
+        <p
+          style={{
+            marginTop: "0.6rem",
+            fontSize: "0.95rem",
+            color: "#9a9088",
+            maxWidth: "480px",
+            margin: "0.6rem auto 0",
+            lineHeight: 1.6,
+          }}
+        >
+          Reads PDFs aloud in Indian English, Hindi, and Telugu · Natural pacing
+          · Word-level highlighting
+        </p>
 
-        {hasPdf && (
-          <div
-            className="reader-grid grid gap-4"
+        <div
+          style={{
+            marginTop: "2rem",
+            display: "flex",
+            gap: "12px",
+            justifyContent: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            onClick={() => {
+              document
+                .getElementById("drop-zone-anchor")
+                ?.scrollIntoView({ behavior: "smooth" });
+            }}
             style={{
-              gridTemplateColumns: "minmax(0, 1fr) 300px",
-              animation: "slideUp 0.4s ease-out",
+              padding: "10px 24px",
+              borderRadius: "10px",
+              background: "linear-gradient(135deg, #d4a843, #c49535)",
+              color: "#fff8ec",
+              border: "none",
+              fontSize: "0.95rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "transform 0.15s, box-shadow 0.15s",
+              boxShadow: "0 2px 12px rgba(212,168,67,0.3)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = "0 4px 20px rgba(212,168,67,0.4)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "0 2px 12px rgba(212,168,67,0.3)";
             }}
           >
-            <PdfViewer
-              canvasRef={canvasRef}
-              fileName={pdfState.fileName}
-              curPage={pdfState.curPage}
-              totalPages={pdfState.totalPages}
-              words={words}
-              activeWordIdx={playState.activeWordIdx}
-              isPageBookmarked={isPageBookmarked}
-              onPrev={() => handlePageChange(-1)}
-              onNext={() => handlePageChange(1)}
-              onBookmarkToggle={handleBookmarkToggle}
-              onGoToPage={handleGoToPage}
-              onWordClick={handleWordClick}
-            />
+            Open PDF
+          </button>
 
-            <ControlPanel
-              mode={mode}
-              rate={rate}
-              pitch={pitch}
-              pauseMs={pauseMs}
-              status={playState.status}
-              progress={playState.progress}
-              statusMsg={playState.statusMsg}
-              charCount={pageText.length}
-              hasApiKey={!!apiKey}
-              bookmarks={bookmarks}
-              currentPage={pdfState.curPage}
-              onModeChange={handleModeChange}
-              onRateChange={setRate}
-              onPitchChange={setPitch}
-              onPauseChange={setPauseMs}
-              onPlay={handlePlay}
-              onPause={pause}
-              onStop={handleStop}
-              onGoToBookmark={handleGoToBookmark}
-              onDeleteBookmark={handleDeleteBookmark}
-            />
+          <button
+            onClick={() => router.push("/library")}
+            style={{
+              padding: "10px 24px",
+              borderRadius: "10px",
+              background: "transparent",
+              color: "#b8922e",
+              border: "1.5px solid rgba(212,168,67,0.5)",
+              fontSize: "0.95rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "background 0.15s, transform 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(212,168,67,0.08)";
+              e.currentTarget.style.transform = "translateY(-2px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            My Library
+          </button>
+        </div>
+      </section>
+
+      {/* ── Recent Sessions ───────────────────────────────────────────────── */}
+      {!loading && sessions.length > 0 && (
+        <section
+          style={{
+            maxWidth: "40rem",
+            margin: "0 auto 2rem",
+            padding: "0 1rem",
+          }}
+        >
+          <p
+            style={{
+              fontSize: "0.68rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              color: "#b8922e",
+              marginBottom: "0.75rem",
+            }}
+          >
+            Continue Reading
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              overflowX: "auto",
+              paddingBottom: "4px",
+            }}
+          >
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => handleResume(s)}
+                style={{
+                  flexShrink: 0,
+                  width: "200px",
+                  textAlign: "left",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  background: "#ffffff",
+                  border: "1px solid rgba(212,168,67,0.25)",
+                  cursor: "pointer",
+                  transition: "box-shadow 0.15s, transform 0.15s",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = "0 4px 16px rgba(212,168,67,0.15)";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.82rem",
+                    fontWeight: 500,
+                    color: "#1a1a2e",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={s.fileName}
+                >
+                  📄 {s.fileName}
+                </p>
+                <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#9a9088" }}>
+                  p.{s.lastPage}/{s.totalPages}
+                  <span style={{ margin: "0 4px", color: "#cec4b4" }}>·</span>
+                  {relativeTime(s.lastRead)}
+                </p>
+                <div
+                  style={{
+                    marginTop: "6px",
+                    height: "3px",
+                    borderRadius: "2px",
+                    background: "#e8e0d0",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      borderRadius: "2px",
+                      width: `${progressPct(s)}%`,
+                      background: "#d4a843",
+                    }}
+                  />
+                </div>
+              </button>
+            ))}
           </div>
-        )}
-      </div>
 
-      <BookmarkPrompt
-        page={pdfState.curPage}
-        fileName={pdfState.fileName}
-        visible={showBookmarkPrompt}
-        onBookmark={handleAddBookmark}
-        onDismiss={() => setShowBookmarkPrompt(false)}
-      />
+          <div style={{ textAlign: "right", marginTop: "8px" }}>
+            <Link
+              href="/library"
+              style={{ fontSize: "0.78rem", color: "#b8922e", textDecoration: "none" }}
+            >
+              View all →
+            </Link>
+          </div>
+        </section>
+      )}
 
-      <style jsx global>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; box-shadow: 0 0 5px rgba(212,168,67,0.5); }
-          50% { opacity: 0.4; box-shadow: 0 0 2px rgba(212,168,67,0.3); }
-        }
-      `}</style>
+      {/* ── Drop Zone ─────────────────────────────────────────────────────── */}
+      <section
+        id="drop-zone-anchor"
+        style={{
+          maxWidth: "40rem",
+          margin: "0 auto 4rem",
+          padding: "0 1rem",
+        }}
+      >
+        <DropZone onFile={handleFile} />
+      </section>
+
+      {/* ── Features ──────────────────────────────────────────────────────── */}
+      <section
+        style={{
+          maxWidth: "56rem",
+          margin: "0 auto 3rem",
+          padding: "0 1rem",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: "1rem",
+          }}
+        >
+          {FEATURES.map((f) => (
+            <div
+              key={f.title}
+              style={{
+                background: "#ffffff",
+                border: "1px solid rgba(212,168,67,0.2)",
+                borderRadius: "12px",
+                padding: "1rem",
+              }}
+            >
+              <div style={{ fontSize: "1.5rem", marginBottom: "8px" }}>{f.icon}</div>
+              <p
+                style={{
+                  margin: "0 0 4px",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  color: "#1a1a2e",
+                }}
+              >
+                {f.title}
+              </p>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "#9a9088", lineHeight: 1.5 }}>
+                {f.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

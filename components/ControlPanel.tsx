@@ -5,6 +5,7 @@ import { MODES } from "@/lib/voices";
 import type { ModeKey } from "@/lib/voices";
 import type { PlayStatus } from "@/hooks/usePlayback";
 import type { Bookmark } from "@/lib/db";
+import { FREE_LIMIT, WARN_THRESHOLD, DANGER_THRESHOLD } from "@/lib/charUsage";
 
 interface Props {
   mode: ModeKey;
@@ -15,6 +16,7 @@ interface Props {
   progress: number;
   statusMsg: string;
   charCount: number;
+  monthlyChars: number;
   hasApiKey: boolean;
   bookmarks: Bookmark[];
   currentPage: number;
@@ -22,11 +24,65 @@ interface Props {
   onRateChange: (v: number) => void;
   onPitchChange: (v: number) => void;
   onPauseChange: (v: number) => void;
+  onSettingsChange: () => void;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
   onGoToBookmark: (page: number) => void;
   onDeleteBookmark: (id: string) => void;
+}
+
+function SliderRow({
+  label,
+  id,
+  min,
+  max,
+  step,
+  value,
+  display,
+  onChange,
+  onPointerUp,
+}: {
+  label: string;
+  id: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  display: string;
+  onChange: (v: number) => void;
+  onPointerUp?: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex justify-between items-center">
+        <label htmlFor={id} className="text-xs" style={{ color: "#4a4060" }}>
+          {label}
+        </label>
+        <span
+          className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded"
+          style={{ color: "#8a6018", background: "rgba(212,168,67,0.12)" }}
+        >
+          {display}
+        </span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        onPointerUp={onPointerUp}
+        className="w-full h-1 rounded cursor-pointer appearance-none"
+        style={{
+          background: `linear-gradient(90deg, #d4a843 0%, #d4a843 ${((value - min) / (max - min)) * 100}%, #e5ddd0 ${((value - min) / (max - min)) * 100}%, #e5ddd0 100%)`,
+          WebkitAppearance: "none",
+        }}
+      />
+    </div>
+  );
 }
 
 export default function ControlPanel({
@@ -42,11 +98,13 @@ export default function ControlPanel({
   progress,
   statusMsg,
   charCount,
+  monthlyChars,
   hasApiKey,
   onModeChange,
   onRateChange,
   onPitchChange,
   onPauseChange,
+  onSettingsChange,
   onPlay,
   onPause,
   onStop,
@@ -55,56 +113,6 @@ export default function ControlPanel({
   const isPaused = status === "paused";
   const modeObj = MODES.find((m) => m.key === mode)!;
   const [bmOpen, setBmOpen] = useState(true);
-
-  function SliderRow({
-    label,
-    id,
-    min,
-    max,
-    step,
-    value,
-    display,
-    onChange,
-  }: {
-    label: string;
-    id: string;
-    min: number;
-    max: number;
-    step: number;
-    value: number;
-    display: string;
-    onChange: (v: number) => void;
-  }) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="flex justify-between items-center">
-          <label htmlFor={id} className="text-xs" style={{ color: "#7a7080" }}>
-            {label}
-          </label>
-          <span
-            className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded"
-            style={{ color: "#8a6018", background: "rgba(212,168,67,0.12)" }}
-          >
-            {display}
-          </span>
-        </div>
-        <input
-          id={id}
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="w-full h-1 rounded cursor-pointer appearance-none"
-          style={{
-            background: `linear-gradient(90deg, #d4a843 0%, #d4a843 ${((value - min) / (max - min)) * 100}%, #e5ddd0 ${((value - min) / (max - min)) * 100}%, #e5ddd0 100%)`,
-            WebkitAppearance: "none",
-          }}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -150,7 +158,7 @@ export default function ControlPanel({
           style={{
             background: "#faf6ee",
             borderLeft: `2.5px solid ${modeObj.color}`,
-            color: "#7a7080",
+            color: "#4a4060",
           }}
         >
           {modeObj.desc}
@@ -226,7 +234,7 @@ export default function ControlPanel({
         <div className="flex gap-2 mb-3">
           <button
             onClick={onPlay}
-            disabled={status === "loading"}
+            disabled={status === "loading" || status === "speaking"}
             className="flex-1 py-2.5 rounded-full text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background:
@@ -237,7 +245,7 @@ export default function ControlPanel({
               boxShadow: isPlaying ? "0 4px 14px rgba(212,168,67,0.3)" : "none",
             }}
             onMouseEnter={(e) => {
-              if (status !== "loading")
+              if (status !== "loading" && status !== "speaking")
                 e.currentTarget.style.transform = "translateY(-1px)";
             }}
             onMouseLeave={(e) => {
@@ -252,8 +260,8 @@ export default function ControlPanel({
           </button>
           <button
             onClick={onPause}
-            disabled={!isPlaying}
-            className="px-4 py-2.5 rounded-full text-sm font-medium transition-all disabled:opacity-30"
+            disabled={!isPlaying || isPaused}
+            className="px-4 py-2.5 rounded-full text-sm font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
               background: "#f5f0e8",
               border: "1px solid #e5ddd0",
@@ -265,7 +273,8 @@ export default function ControlPanel({
           </button>
           <button
             onClick={onStop}
-            className="px-4 py-2.5 rounded-full text-sm font-medium transition-all"
+            disabled={status === "idle" || status === "done"}
+            className="px-4 py-2.5 rounded-full text-sm font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
               background: "#f5f0e8",
               border: "1px solid #e5ddd0",
@@ -273,8 +282,10 @@ export default function ControlPanel({
             }}
             title="Stop"
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#dc2626";
-              e.currentTarget.style.color = "#dc2626";
+              if (status !== "idle" && status !== "done") {
+                e.currentTarget.style.borderColor = "#dc2626";
+                e.currentTarget.style.color = "#dc2626";
+              }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = "#e5ddd0";
@@ -324,10 +335,10 @@ export default function ControlPanel({
                   : status === "error"
                   ? "#dc2626"
                   : status === "paused"
-                  ? "#e07a3a"
+                  ? "#c06820"
                   : isPlaying
-                  ? "#b8922e"
-                  : "#9a9088",
+                  ? "#9a7010"
+                  : "#6a6070",
             }}
           >
             {statusMsg}
@@ -337,27 +348,64 @@ export default function ControlPanel({
         {/* Char cost info */}
         {charCount > 0 && (
           <div
-            className="mt-3 pt-3 flex items-center justify-between text-xs"
-            style={{ borderTop: "1px solid #e8e0d0", color: "#b0a898" }}
+            className="mt-3 pt-3 text-xs"
+            style={{ borderTop: "1px solid #e8e0d0", color: "#6a6070" }}
           >
-            <span>
-              {charCount.toLocaleString()} chars
-              {!hasApiKey && (
-                <span className="ml-1" style={{ color: "#cec4b4" }}>
-                  · browser voice
+            <div className="flex items-center justify-between">
+              <span>
+                This page:{" "}
+                <span style={{ color: "#4a4060", fontWeight: 600 }}>
+                  {charCount.toLocaleString()} chars
+                </span>
+                {!hasApiKey && (
+                  <span className="ml-1" style={{ color: "#cec4b4" }}>
+                    · browser voice
+                  </span>
+                )}
+              </span>
+              {hasApiKey && (
+                <span>
+                  est.{" "}
+                  <span style={{ color: "#8a6018", fontWeight: 600 }}>
+                    ${(charCount * 0.000004).toFixed(4)}
+                  </span>
                 </span>
               )}
-            </span>
-            {hasApiKey && (
-              <span>
-                est.{" "}
-                <span style={{ color: "#8a6018", fontWeight: 600 }}>
-                  ${(charCount * 0.000004).toFixed(4)}
-                </span>
-              </span>
-            )}
+            </div>
           </div>
         )}
+
+        {/* Monthly usage meter */}
+        {hasApiKey && (() => {
+          const pct = Math.min(monthlyChars / FREE_LIMIT, 1);
+          const isWarn = pct >= WARN_THRESHOLD && pct < DANGER_THRESHOLD;
+          const isDanger = pct >= DANGER_THRESHOLD;
+          const barColor = isDanger ? "#e05555" : isWarn ? "#e07a3a" : "#4caf7a";
+          const remaining = Math.max(FREE_LIMIT - monthlyChars, 0);
+          return (
+            <div className="mt-3 pt-3" style={{ borderTop: "1px solid #e8e0d0" }}>
+              <div className="flex justify-between text-xs mb-1.5" style={{ color: "#6a6070" }}>
+                <span>Monthly free tier</span>
+                <span style={{ color: isDanger ? "#e05555" : isWarn ? "#e07a3a" : "#6a6070", fontWeight: isDanger || isWarn ? 600 : 400 }}>
+                  {monthlyChars.toLocaleString()} / {(FREE_LIMIT / 1_000_000).toFixed(0)}M chars
+                </span>
+              </div>
+              <div className="w-full rounded-full overflow-hidden" style={{ height: 6, background: "#e8e0d0" }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct * 100}%`, background: barColor }}
+                />
+              </div>
+              {(isWarn || isDanger) && (
+                <p className="mt-1.5 text-xs font-medium" style={{ color: barColor }}>
+                  {isDanger
+                    ? "⚠ Free tier exceeded — charges may apply"
+                    : `⚠ ${(remaining / 1000).toFixed(0)}k chars left before free tier ends`}
+                </p>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Keyboard shortcuts */}

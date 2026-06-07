@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { testApiKey } from "@/lib/tts";
 import { LANGUAGES, VOICES } from "@/lib/voices";
 import type { Voice } from "@/lib/voices";
@@ -30,6 +30,14 @@ export default function ApiKeyCard({
   );
   const [testing, setTesting] = useState(false);
   const [showHelp, setShowHelp] = useState(!apiKey);
+
+  useEffect(() => {
+    if (apiKey) {
+      setInput(apiKey);
+      setMsg({ text: "✓ Key loaded. Indian Standard voices ready.", type: "ok" });
+      setShowHelp(false);
+    }
+  }, [apiKey]);
 
   async function handleSave() {
     const k = input.trim();
