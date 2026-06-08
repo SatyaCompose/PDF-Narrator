@@ -140,16 +140,20 @@ export default function ControlPanel({
               <button
                 key={m.key}
                 onClick={() => onModeChange(m.key)}
-                className="py-2.5 px-2 rounded-xl text-xs text-center transition-all leading-tight"
+                className="rounded-xl text-center transition-all"
                 style={{
+                  padding: "14px 6px 12px",
                   border: `1.5px solid ${active ? m.border : "#e5ddd0"}`,
                   background: active ? m.bg : "#f5f0e8",
                   color: active ? m.color : "#7a7080",
                   transform: active ? "translateY(-1px)" : "translateY(0)",
                   boxShadow: active ? `0 3px 10px ${m.color}18` : "none",
+                  fontSize: "0.72rem",
+                  fontWeight: active ? 600 : 400,
+                  lineHeight: 1.3,
                 }}
               >
-                <span className="block text-lg mb-1">{m.icon}</span>
+                <span style={{ display: "block", fontSize: "1.5rem", marginBottom: "6px", lineHeight: 1 }}>{m.icon}</span>
                 {m.label}
               </button>
             );
