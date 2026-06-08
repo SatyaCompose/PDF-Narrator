@@ -24,8 +24,11 @@ export default function DropZone({ onFile }: Props) {
         setOver(false);
         handleFile(e.dataTransfer.files[0]);
       }}
-      className="relative rounded-2xl cursor-pointer transition-all duration-300 overflow-hidden"
       style={{
+        position: "relative",
+        borderRadius: "16px",
+        cursor: "pointer",
+        overflow: "hidden",
         border: `2px dashed ${over ? "#d4a843" : "#cec4b4"}`,
         background: over
           ? "linear-gradient(145deg, #fffbf3, #fdf6e8)"
@@ -34,44 +37,72 @@ export default function DropZone({ onFile }: Props) {
           ? "0 0 40px rgba(212,168,67,0.15), inset 0 0 40px rgba(212,168,67,0.04)"
           : "0 2px 12px rgba(0,0,0,0.04)",
         transform: over ? "scale(1.005)" : "scale(1)",
+        transition: "border-color 0.3s, background 0.3s, box-shadow 0.3s, transform 0.3s",
       }}
     >
-      {/* Subtle dot pattern */}
+      {/* Dot pattern overlay */}
       <div
-        className="absolute inset-0 pointer-events-none"
         style={{
-          backgroundImage: `radial-gradient(circle at 2px 2px, rgba(212,168,67,0.12) 1px, transparent 0)`,
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          backgroundImage: "radial-gradient(circle at 2px 2px, rgba(212,168,67,0.12) 1px, transparent 0)",
           backgroundSize: "32px 32px",
           opacity: over ? 1 : 0.6,
           transition: "opacity 0.3s",
         }}
       />
 
-      <div className="relative z-10 py-16 px-8 text-center">
+      {/* Content */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          padding: "4rem 2rem",
+          textAlign: "center",
+        }}
+      >
         <div
-          className="text-5xl mb-5 transition-transform duration-300"
-          style={{ transform: over ? "scale(1.15) rotate(-5deg)" : "scale(1) rotate(0deg)" }}
+          style={{
+            fontSize: "3rem",
+            marginBottom: "1.25rem",
+            lineHeight: 1,
+            transition: "transform 0.3s",
+            transform: over ? "scale(1.15) rotate(-5deg)" : "scale(1) rotate(0deg)",
+          }}
         >
           📖
         </div>
+
         <h2
-          className="font-serif font-normal mb-2"
           style={{
+            fontFamily: "'Playfair Display', serif",
+            fontWeight: 400,
             fontSize: "1.4rem",
+            margin: "0 0 8px",
             color: over ? "#8a6018" : "#1a1a2e",
+            transition: "color 0.2s",
           }}
         >
           {over ? "Release to open" : "Drop your PDF here"}
         </h2>
-        <p className="text-sm" style={{ color: "#9a9088" }}>
+
+        <p style={{ margin: 0, fontSize: "0.875rem", color: "#9a9088" }}>
           or click to choose a file
         </p>
 
         <div
-          className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium"
           style={{
+            marginTop: "1.5rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px 16px",
+            borderRadius: "999px",
             background: "rgba(212,168,67,0.1)",
             border: "1px solid rgba(212,168,67,0.3)",
+            fontSize: "0.75rem",
+            fontWeight: 500,
             color: "#b8922e",
           }}
         >
@@ -85,7 +116,7 @@ export default function DropZone({ onFile }: Props) {
         ref={fileRef}
         type="file"
         accept=".pdf"
-        className="hidden"
+        style={{ display: "none" }}
         onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
       />
     </div>

@@ -91,7 +91,6 @@ export default function LandingPage() {
 
   return (
     <div
-      className="min-h-screen"
       style={{
         background:
           "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212,168,67,0.18) 0%, transparent 60%), #faf8f4",
@@ -322,8 +321,8 @@ export default function LandingPage() {
       <section
         style={{
           maxWidth: "56rem",
-          margin: "0 auto 3rem",
-          padding: "0 1rem",
+          margin: "0 auto",
+          padding: "0 1rem 3rem",
         }}
       >
         <div
