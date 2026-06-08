@@ -23,6 +23,9 @@ import {
   getBookmarksForSession,
   deleteBookmark,
   makeSessionId,
+  pinSession,
+  unpinSession,
+  requestPersistentStorage,
 } from "@/lib/db";
 import type { SessionMeta, Bookmark } from "@/lib/db";
 import { needsOCR, visionOCR } from "@/lib/ocr";
@@ -252,6 +255,18 @@ export default function ReaderPage() {
     const full: SessionMeta = { ...meta, lastRead: Date.now() };
     sessionIdRef.current = full.id;
     await saveSession(full, pdfData);
+    // Ask browser to keep IndexedDB data permanently (first PDF triggers the prompt)
+    requestPersistentStorage().catch(() => {});
+    await refreshSessions();
+  }
+
+  async function handlePinSession(id: string) {
+    await pinSession(id);
+    await refreshSessions();
+  }
+
+  async function handleUnpinSession(id: string) {
+    await unpinSession(id);
     await refreshSessions();
   }
 
@@ -773,6 +788,8 @@ export default function ReaderPage() {
               sessions={sessions}
               onResume={handleResume}
               onDelete={handleDeleteSession}
+              onPin={handlePinSession}
+              onUnpin={handleUnpinSession}
             />
             <DropZone onFile={handleFile} />
           </>
