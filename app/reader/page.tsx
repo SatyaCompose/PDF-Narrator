@@ -67,8 +67,11 @@ export default function ReaderPage() {
   // track whether user has made reading progress (to decide if prompt is worth showing)
   const hasReadRef = useRef(false);
 
-  const { state: pdfState, canvasRef, loadPDF, loadPDFFromData, goToPage, resetPdf, capturePageImage } =
-    usePdfReader();
+  const {
+    state: pdfState, canvasRef, textLayerRef,
+    loadPDF, loadPDFFromData, goToPage, resetPdf, capturePageImage,
+    buildWordMap, highlightWord, setWordClickCallback,
+  } = usePdfReader();
 
   // ── OCR state ─────────────────────────────────────────────────────────────
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -160,6 +163,24 @@ export default function ReaderPage() {
   useEffect(() => {
     updateLiveSettings({ mode, rate, pitch, pauseMs });
   }, [mode, rate, pitch, pauseMs, updateLiveSettings]);
+
+  // Rebuild the text-layer word map whenever the page words change
+  useEffect(() => {
+    buildWordMap(words);
+  }, [words, buildWordMap]);
+
+  // Drive word highlight in the PDF text layer
+  useEffect(() => {
+    highlightWord(playState.activeWordIdx);
+  }, [playState.activeWordIdx, highlightWord]);
+
+  // Register word-click callback so clicking a word in the PDF text layer seeks there.
+  // Re-registers whenever any value captured by handleWordClick changes.
+  useEffect(() => {
+    setWordClickCallback(handleWordClick);
+    return () => setWordClickCallback(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setWordClickCallback, pageText, words, apiKey, selLang, selVoice, mode, rate, pitch, pauseMs, speakPage]);
 
   // ── Session helpers ───────────────────────────────────────────────────────
   async function refreshSessions() {
@@ -460,7 +481,8 @@ export default function ReaderPage() {
 
   function handleWordClick(idx: number) {
     setStartWordIdx(idx);
-    if (playState.status === "speaking" || playState.status === "paused" || playState.status === "loading") {
+    const s = currentStatusRef.current;
+    if (s === "speaking" || s === "paused" || s === "loading") {
       speakPage({
         text: pageText,
         words,
@@ -685,12 +707,11 @@ export default function ReaderPage() {
           >
             <PdfViewer
               canvasRef={canvasRef}
+              textLayerRef={textLayerRef}
               fileName={pdfState.fileName}
               curPage={pdfState.curPage}
               totalPages={pdfState.totalPages}
-              words={words}
               activeWordIdx={playState.activeWordIdx}
-              startWordIdx={startWordIdx}
               isPageBookmarked={isPageBookmarked}
               ocrLoading={ocrLoading}
               ocrError={ocrError}
@@ -704,7 +725,6 @@ export default function ReaderPage() {
               onNext={() => handlePageChange(1)}
               onBookmarkToggle={handleBookmarkToggle}
               onGoToPage={handleGoToPage}
-              onWordClick={handleWordClick}
               onNewFile={handleFile}
             />
 

@@ -9,12 +9,11 @@ interface PdfTabMeta {
 
 interface Props {
   canvasRef: RefObject<HTMLCanvasElement>;
+  textLayerRef: RefObject<HTMLDivElement>;
   fileName: string;
   curPage: number;
   totalPages: number;
-  words: string[];
   activeWordIdx: number;
-  startWordIdx: number;
   isPageBookmarked: boolean;
   ocrLoading: boolean;
   ocrError: string | null;
@@ -28,18 +27,16 @@ interface Props {
   onNext: () => void;
   onBookmarkToggle: () => void;
   onGoToPage: (n: number) => void;
-  onWordClick: (idx: number) => void;
   onNewFile: (file: File) => void;
 }
 
 export default function PdfViewer({
   canvasRef,
+  textLayerRef,
   fileName,
   curPage,
   totalPages,
-  words,
   activeWordIdx,
-  startWordIdx,
   isPageBookmarked,
   ocrLoading,
   ocrError,
@@ -53,15 +50,34 @@ export default function PdfViewer({
   onNext,
   onBookmarkToggle,
   onGoToPage,
-  onWordClick,
   onNewFile,
 }: Props) {
   const [pageInput, setPageInput] = useState(String(curPage));
   const fileRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPageInput(String(curPage));
   }, [curPage]);
+
+  // Keep text layer scaled to match the CSS-displayed canvas size
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const tl = textLayerRef.current;
+    if (!canvas || !tl) return;
+
+    const sync = () => {
+      if (canvas.width === 0) return;
+      const scale = canvas.getBoundingClientRect().width / canvas.width;
+      tl.style.transform = `scale(${scale})`;
+      tl.style.transformOrigin = "0 0";
+    };
+
+    sync();
+    const obs = new ResizeObserver(sync);
+    obs.observe(canvas);
+    return () => obs.disconnect();
+  }, [canvasRef, textLayerRef, curPage]);
 
   function commitPageInput() {
     const n = parseInt(pageInput, 10);
@@ -114,7 +130,7 @@ export default function PdfViewer({
             </div>
           ))}
           <button
-            onClick={() => (document.querySelector<HTMLInputElement>("[data-open-pdf]") as HTMLInputElement)?.click()}
+            onClick={() => fileRef.current?.click()}
             className="flex-shrink-0 ml-1 px-2 py-1 rounded-lg text-xs transition-all"
             style={{ border: "1px dashed #d4a843", color: "#b8922e", background: "transparent" }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(212,168,67,0.08)"; }}
@@ -128,32 +144,32 @@ export default function PdfViewer({
 
       {/* Page header */}
       <div
-        className="flex items-center justify-between px-4 py-3 flex-wrap gap-3"
+        className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 flex-wrap gap-2"
         style={{
           background: "linear-gradient(180deg, #faf6ee, #f5f0e8)",
           borderBottom: "1px solid #e8e0d0",
         }}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <div
             className="w-2 h-2 rounded-full flex-shrink-0"
             style={{ background: "#d4a843", boxShadow: "0 0 5px rgba(212,168,67,0.5)" }}
           />
           <span
-            className="text-sm font-medium truncate max-w-[200px] lg:max-w-[280px]"
+            className="text-xs sm:text-sm font-medium truncate max-w-[120px] sm:max-w-[200px] lg:max-w-[280px]"
             style={{ color: "#1a1a2e" }}
           >
             {fileName || "—"}
           </span>
           <button
             onClick={() => fileRef.current?.click()}
-            className="text-xs px-2 py-1 rounded-lg transition-all"
+            className="text-xs px-2 py-1 rounded-lg transition-all flex-shrink-0"
             style={{ border: "1px solid #e5ddd0", background: "#fff", color: "#7a7080" }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#d4a843"; e.currentTarget.style.color = "#b8922e"; }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e5ddd0"; e.currentTarget.style.color = "#7a7080"; }}
             title="Open a different PDF"
           >
-            📂 Open PDF
+            📂 Open
           </button>
           <input
             ref={fileRef}
@@ -168,26 +184,20 @@ export default function PdfViewer({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Bookmark toggle */}
           <button
             onClick={onBookmarkToggle}
             title={isPageBookmarked ? "Remove bookmark" : "Bookmark this page"}
-            className="px-2 py-1.5 rounded-lg text-base transition-all"
+            className="px-2 py-1.5 rounded-lg text-sm transition-all"
             style={{
               background: isPageBookmarked ? "rgba(212,168,67,0.15)" : "transparent",
               border: `1px solid ${isPageBookmarked ? "#d4a843" : "#e5ddd0"}`,
               color: isPageBookmarked ? "#b8922e" : "#cec4b4",
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#d4a843";
-              e.currentTarget.style.color = "#b8922e";
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#d4a843"; e.currentTarget.style.color = "#b8922e"; }}
             onMouseLeave={(e) => {
-              if (!isPageBookmarked) {
-                e.currentTarget.style.borderColor = "#e5ddd0";
-                e.currentTarget.style.color = "#cec4b4";
-              }
+              if (!isPageBookmarked) { e.currentTarget.style.borderColor = "#e5ddd0"; e.currentTarget.style.color = "#cec4b4"; }
             }}
           >
             {isPageBookmarked ? "🔖" : "🏷️"}
@@ -196,25 +206,14 @@ export default function PdfViewer({
           <button
             onClick={onPrev}
             disabled={curPage <= 1}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
-            style={{
-              background: "#ffffff",
-              border: "1px solid #e5ddd0",
-              color: "#1a1a2e",
-            }}
-            onMouseEnter={(e) => {
-              if (curPage > 1) {
-                e.currentTarget.style.borderColor = "#d4a843";
-                e.currentTarget.style.color = "#8a6018";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#e5ddd0";
-              e.currentTarget.style.color = "#1a1a2e";
-            }}
+            className="px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
+            style={{ background: "#ffffff", border: "1px solid #e5ddd0", color: "#1a1a2e" }}
+            onMouseEnter={(e) => { if (curPage > 1) { e.currentTarget.style.borderColor = "#d4a843"; e.currentTarget.style.color = "#8a6018"; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e5ddd0"; e.currentTarget.style.color = "#1a1a2e"; }}
           >
             ← Prev
           </button>
+
           <div
             className="flex items-center gap-1 px-2 py-1 rounded text-xs"
             style={{ color: "#7a7080", background: "#ede8df" }}
@@ -227,164 +226,124 @@ export default function PdfViewer({
               onChange={(e) => setPageInput(e.target.value)}
               onBlur={commitPageInput}
               onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); commitPageInput(); } }}
-              className="w-8 text-center bg-transparent outline-none tabular-nums"
+              className="w-7 text-center bg-transparent outline-none tabular-nums"
               style={{ color: "#1a1a2e", MozAppearance: "textfield" } as React.CSSProperties}
             />
             <span>/ {totalPages}</span>
           </div>
+
           <button
             onClick={onNext}
             disabled={curPage >= totalPages}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
-            style={{
-              background: "#ffffff",
-              border: "1px solid #e5ddd0",
-              color: "#1a1a2e",
-            }}
-            onMouseEnter={(e) => {
-              if (curPage < totalPages) {
-                e.currentTarget.style.borderColor = "#d4a843";
-                e.currentTarget.style.color = "#8a6018";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#e5ddd0";
-              e.currentTarget.style.color = "#1a1a2e";
-            }}
+            className="px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
+            style={{ background: "#ffffff", border: "1px solid #e5ddd0", color: "#1a1a2e" }}
+            onMouseEnter={(e) => { if (curPage < totalPages) { e.currentTarget.style.borderColor = "#d4a843"; e.currentTarget.style.color = "#8a6018"; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e5ddd0"; e.currentTarget.style.color = "#1a1a2e"; }}
           >
             Next →
           </button>
         </div>
       </div>
 
-      {/* Canvas */}
-      <div
-        className="flex justify-center overflow-y-auto p-4"
-        style={{ maxHeight: "55vh", background: "#f0ebe2" }}
-      >
-        <canvas
-          ref={canvasRef}
-          className="rounded max-w-full h-auto"
-          style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }}
-        />
-      </div>
-
-      {/* Word highlight strip / OCR status */}
-      {(ocrLoading || ocrError || words.length > 0) && (
+      {/* OCR status bar (compact, only visible when needed) */}
+      {(ocrLoading || ocrError) && (
         <div
-          className="px-4 py-3 overflow-y-auto text-sm leading-loose"
-          style={{
-            maxHeight: "140px",
-            background: "#faf8f4",
-            borderTop: "1px solid #e8e0d0",
-          }}
+          className="px-3 py-2 flex items-center gap-2 flex-wrap text-xs"
+          style={{ background: "#fffbf0", borderBottom: "1px solid #e8e0d0" }}
         >
           {ocrLoading ? (
-            <span className="text-xs animate-pulse" style={{ color: "#8a6018" }}>
+            <span className="animate-pulse" style={{ color: "#8a6018" }}>
               🔍 Reading page via Vision AI…
             </span>
-          ) : ocrError ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-start gap-2">
-                <span className="text-xs" style={{ color: "#dc2626" }}>
-                  {ocrError === "no-key"
-                    ? "⚠ Add a Google API key to use Vision OCR for this language."
-                    : ocrError.includes("not been used") || ocrError.includes("disabled") || ocrError.includes("403")
-                    ? "⚠ Vision API not enabled — go to console.cloud.google.com → APIs & Services → enable \"Cloud Vision API\"."
-                    : `⚠ Vision OCR failed: ${ocrError}`}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={onRetryOCR}
-                  className="text-xs px-2.5 py-1 rounded-lg transition-all"
-                  style={{
-                    background: "rgba(212,168,67,0.12)",
-                    border: "1px solid #d4a843",
-                    color: "#8a6018",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(212,168,67,0.22)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(212,168,67,0.12)"; }}
-                >
-                  ↺ Retry OCR
-                </button>
-                {words.length > 0 && (
-                  <span className="text-xs self-center" style={{ color: "#9a9088" }}>
-                    (showing raw pdf.js text below)
-                  </span>
-                )}
-              </div>
-              {words.length > 0 && (
-                <div className="overflow-x-auto">
-                  {words.map((w, i) => {
-                    const isActive = i === activeWordIdx;
-                    const isStart = i === startWordIdx && activeWordIdx === -1;
-                    return (
-                      <span
-                        key={i}
-                        onClick={() => onWordClick(i)}
-                        className="inline transition-all duration-75 rounded px-0.5 mr-0.5 cursor-pointer"
-                        style={
-                          isActive
-                            ? { background: "#d4a843", color: "#fff", fontWeight: 600 }
-                            : isStart
-                            ? { background: "rgba(212,168,67,0.18)", color: "#7a5010", fontWeight: 600, borderBottom: "2px solid #d4a843" }
-                            : { color: "#2a2040" }
-                        }
-                      >
-                        {w}{" "}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 mb-1">
-                <span className="text-xs select-none" style={{ color: "#7a7080" }}>
-                  Click any word to start from there →
-                </span>
-                <button
-                  onClick={onForceOCR}
-                  className="text-xs px-2 py-0.5 rounded transition-all flex-shrink-0"
-                  style={{
-                    border: "1px solid #e5ddd0",
-                    color: "#9a9088",
-                    background: "transparent",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#d4a843"; e.currentTarget.style.color = "#8a6018"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e5ddd0"; e.currentTarget.style.color = "#9a9088"; }}
-                  title="Re-read this page using Vision AI (useful if words look garbled)"
-                >
-                  🔍 Use Vision OCR
-                </button>
-              </div>
-              {words.map((w, i) => {
-                const isActive = i === activeWordIdx;
-                const isStart = i === startWordIdx && activeWordIdx === -1;
-                return (
-                  <span
-                    key={i}
-                    onClick={() => onWordClick(i)}
-                    className="inline transition-all duration-75 rounded px-0.5 mr-0.5 cursor-pointer"
-                    title="Click to start reading from here"
-                    style={
-                      isActive
-                        ? { background: "#d4a843", color: "#ffffff", fontWeight: 600 }
-                        : isStart
-                        ? { background: "rgba(212,168,67,0.18)", color: "#7a5010", fontWeight: 600, borderBottom: "2px solid #d4a843" }
-                        : { color: "#2a2040" }
-                    }
-                  >
-                    {w}{" "}
-                  </span>
-                );
-              })}
+              <span style={{ color: "#dc2626" }}>
+                {ocrError === "no-key"
+                  ? "⚠ Add a Google API key to enable Vision OCR."
+                  : ocrError?.includes("not been used") || ocrError?.includes("disabled") || ocrError?.includes("403")
+                  ? "⚠ Vision API not enabled — enable it in Google Cloud Console."
+                  : `⚠ Vision OCR failed: ${ocrError}`}
+              </span>
+              <button
+                onClick={onRetryOCR}
+                className="px-2 py-0.5 rounded transition-all"
+                style={{ background: "rgba(212,168,67,0.12)", border: "1px solid #d4a843", color: "#8a6018" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(212,168,67,0.22)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(212,168,67,0.12)"; }}
+              >
+                ↺ Retry OCR
+              </button>
             </>
           )}
         </div>
       )}
+
+      {/* PDF canvas + text layer overlay */}
+      <div
+        className="flex justify-center overflow-y-auto p-3 sm:p-4"
+        style={{ background: "#f0ebe2", maxHeight: "calc(100vh - 220px)", minHeight: "300px" }}
+      >
+        {/* Wrapper keeps canvas + text layer aligned; canvas controls the displayed width */}
+        <div ref={wrapperRef} style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
+          <canvas
+            ref={canvasRef}
+            className="rounded"
+            style={{
+              maxWidth: "100%",
+              height: "auto",
+              display: "block",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
+            }}
+          />
+          {/* pdf.js text layer — transparent text spans positioned over canvas */}
+          <div
+            ref={textLayerRef}
+            className="pdf-text-layer"
+            title="Click any word to start reading from there"
+          />
+          {/* Reading-tip badge — visible only when not playing */}
+          {activeWordIdx < 0 && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 8,
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "rgba(26,26,46,0.72)",
+                color: "#ede0c8",
+                fontSize: "0.68rem",
+                padding: "3px 10px",
+                borderRadius: 999,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              Click any word · Space to play
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Force-OCR button row (always available when PDF is loaded) */}
+      <div
+        className="px-3 py-2 flex items-center gap-2"
+        style={{ borderTop: "1px solid #e8e0d0", background: "#faf8f4" }}
+      >
+        <button
+          onClick={onForceOCR}
+          className="text-xs px-2.5 py-1 rounded-lg transition-all"
+          style={{ border: "1px solid #e5ddd0", color: "#9a9088", background: "transparent" }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#d4a843"; e.currentTarget.style.color = "#8a6018"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e5ddd0"; e.currentTarget.style.color = "#9a9088"; }}
+          title="Re-read this page using Vision AI (useful for scanned/image PDFs)"
+        >
+          🔍 Use Vision OCR
+        </button>
+        <span className="text-xs" style={{ color: "#cec4b4" }}>
+          for scanned or image-based PDFs
+        </span>
+      </div>
     </div>
   );
 }

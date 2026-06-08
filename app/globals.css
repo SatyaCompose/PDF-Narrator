@@ -90,9 +90,41 @@ input[type='range']::-moz-range-thumb {
   color: #8a6018;
 }
 
-/* Responsive grid */
-@media (max-width: 740px) {
+/* Responsive grid — single column on tablet and below */
+@media (max-width: 1024px) {
   .reader-grid {
     grid-template-columns: 1fr !important;
   }
+}
+
+/* PDF.js text layer overlay */
+.pdf-text-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  line-height: 1;
+  transform-origin: 0 0;
+  pointer-events: auto;
+  z-index: 2;
+  /* match canvas corner rounding */
+  border-radius: 4px;
+}
+
+.pdf-text-layer > span,
+.pdf-text-layer > br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Highlighted word while reading */
+.pdf-word-hl {
+  background: rgba(212, 168, 67, 0.45) !important;
+  border-radius: 2px;
+  mix-blend-mode: multiply;
 }
