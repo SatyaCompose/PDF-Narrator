@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { testApiKey } from "@/lib/tts";
+import { useEffect } from "react";
+import Link from "next/link";
 import { LANGUAGES, VOICES } from "@/lib/voices";
-import type { Voice } from "@/lib/voices";
+import type { Voice, VoiceTier } from "@/lib/voices";
 
 interface Props {
   apiKey: string;
+  ready: boolean; // true once parent's init useEffect has run
   onSave: (key: string) => void;
   selectedLang: string;
   selectedVoice: Voice;
@@ -16,168 +17,46 @@ interface Props {
 
 export default function ApiKeyCard({
   apiKey,
-  onSave,
+  ready,
   selectedLang,
   selectedVoice,
   onLangChange,
   onVoiceChange,
 }: Props) {
-  const [input, setInput] = useState(apiKey);
-  const [msg, setMsg] = useState<{ text: string; type: "ok" | "err" | "neutral" }>(
-    apiKey
-      ? { text: "✓ Key loaded. Indian Standard voices ready.", type: "ok" }
-      : { text: "No key — paste your API key above to activate Indian voices", type: "neutral" }
-  );
-  const [testing, setTesting] = useState(false);
-  const [showHelp, setShowHelp] = useState(!apiKey);
-
-  useEffect(() => {
-    if (apiKey) {
-      setInput(apiKey);
-      setMsg({ text: "✓ Key loaded. Indian Standard voices ready.", type: "ok" });
-      setShowHelp(false);
-    }
-  }, [apiKey]);
-
-  async function handleSave() {
-    const k = input.trim();
-    if (!k) {
-      setMsg({ text: "Please paste your API key.", type: "err" });
-      return;
-    }
-    setTesting(true);
-    setMsg({ text: "Testing key…", type: "neutral" });
-    try {
-      await testApiKey(k);
-      onSave(k);
-      setMsg({ text: "✓ Works! Standard Indian voices are active.", type: "ok" });
-      setShowHelp(false);
-    } catch (e) {
-      setMsg({
-        text: "✗ " + (e instanceof Error ? e.message : "Invalid key"),
-        type: "err",
-      });
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  const msgColor =
-    msg.type === "ok" ? "#16a34a" : msg.type === "err" ? "#dc2626" : "#9a9088";
+  // Suppress unused-variable warning — onSave kept in Props for caller compatibility
+  useEffect(() => {}, []);
 
   return (
     <div
-      className="rounded-xl border p-5 mb-4"
+      className="rounded-xl border p-5"
       style={{
         background: "linear-gradient(145deg, #ffffff, #fdf9f3)",
         borderColor: "rgba(212,168,67,0.4)",
         boxShadow: "0 1px 12px rgba(212,168,67,0.1), 0 4px 20px rgba(0,0,0,0.04)",
       }}
     >
-      {/* API Row */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span
-          className="text-xs font-bold whitespace-nowrap"
-          style={{ color: "#b8922e", letterSpacing: "0.06em", textTransform: "uppercase" }}
-        >
-          🔑 Google Cloud API Key
+      {/* API key status row — compact link to Settings */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-xs" style={{ color: ready && apiKey ? "#16a34a" : "#9a9088" }}>
+          {ready
+            ? apiKey
+              ? "🔑 API key active"
+              : "🔑 No API key"
+            : ""}
         </span>
-        <input
-          type="password"
-          className="flex-1 min-w-[160px] px-3 py-2 rounded-lg text-sm font-mono outline-none transition-all"
-          placeholder="AIzaSy…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSave()}
-          autoComplete="off"
-          style={{
-            background: "#f5f0e8",
-            border: "1.5px solid #e5ddd0",
-            color: "#1a1a2e",
-            fontSize: "0.82rem",
-          }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = "#d4a843")}
-          onBlur={(e) => (e.currentTarget.style.borderColor = "#e5ddd0")}
-        />
-        <button
-          onClick={handleSave}
-          disabled={testing}
-          className="px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap disabled:opacity-50"
-          style={{
-            background: testing
-              ? "#c49530"
-              : "linear-gradient(135deg, #d4a843, #c49535)",
-            color: "#fff8ec",
-          }}
-          onMouseEnter={(e) => {
-            if (!testing) e.currentTarget.style.transform = "translateY(-1px)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-          }}
+        <Link
+          href="/settings"
+          className="text-xs font-medium transition-colors"
+          style={{ color: "#b8922e" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#8a6018")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "#b8922e")}
         >
-          {testing ? "Testing…" : "Save & Test"}
-        </button>
+          Manage in Settings →
+        </Link>
       </div>
 
-      {/* Status message */}
-      <p className="mt-2 text-xs" style={{ color: msgColor }}>
-        {msg.text}
-      </p>
-
-      {/* Help toggle */}
-      <button
-        onClick={() => setShowHelp((s) => !s)}
-        className="mt-3 text-xs transition-colors"
-        style={{ color: "#9a9088" }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "#b8922e")}
-        onMouseLeave={(e) => (e.currentTarget.style.color = "#9a9088")}
-      >
-        {showHelp ? "▼ Hide setup guide" : "▶ How to get a free API key"}
-      </button>
-
-      {showHelp && (
-        <div
-          className="mt-3 text-xs rounded-lg p-3 leading-relaxed"
-          style={{
-            background: "#faf6ee",
-            borderLeft: "3px solid #d4a843",
-            color: "#7a7080",
-          }}
-        >
-          <strong style={{ color: "#1a1a2e" }}>Free key in 3 minutes:</strong>
-          <br />
-          1.{" "}
-          <a
-            href="https://console.cloud.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#b8922e" }}
-          >
-            console.cloud.google.com
-          </a>{" "}
-          → Create a project
-          <br />
-          2. Search{" "}
-          <code
-            className="rounded px-1"
-            style={{ background: "rgba(212,168,67,0.12)", fontFamily: "monospace", color: "#8a6018" }}
-          >
-            Cloud Text-to-Speech API
-          </code>{" "}
-          → <strong>Enable</strong>
-          <br />
-          3. <strong>APIs &amp; Services → Credentials → Create API Key</strong> → paste above
-          <br />
-          <span className="mt-1 block" style={{ color: "#b0a898" }}>
-            Free tier:{" "}
-            <strong style={{ color: "#7a7080" }}>4 million Standard chars/month</strong>
-          </span>
-        </div>
-      )}
-
       {/* Language & Voice selection */}
-      <div className="mt-4 pt-4" style={{ borderTop: "1px solid #e8e0d0" }}>
+      <div className="mt-3 pt-3" style={{ borderTop: "1px solid #e8e0d0" }}>
         <div className="flex gap-4 flex-wrap">
           {/* Language tabs */}
           <div className="flex flex-col gap-2">
@@ -194,11 +73,16 @@ export default function ApiKeyCard({
                   <button
                     key={lang.code}
                     onClick={() => onLangChange(lang.code)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                    className="font-medium transition-all"
                     style={{
+                      padding: "7px 14px",
+                      borderRadius: "10px",
+                      fontSize: "0.92rem",
+                      lineHeight: 1.3,
                       border: `1.5px solid ${active ? "#d4a843" : "#e5ddd0"}`,
                       background: active ? "rgba(212,168,67,0.1)" : "#f5f0e8",
                       color: active ? "#8a6018" : "#7a7080",
+                      fontWeight: active ? 600 : 400,
                     }}
                   >
                     {lang.label}
@@ -208,45 +92,98 @@ export default function ApiKeyCard({
             </div>
           </div>
 
-          {/* Voice chips */}
-          <div className="flex flex-col gap-2">
+          {/* Voice chips — grouped by tier */}
+          <div className="flex flex-col gap-3">
             <span
               className="text-xs font-bold uppercase"
               style={{ color: "#9a9088", letterSpacing: "0.08em" }}
             >
               Voice
             </span>
-            <div className="flex gap-2 flex-wrap">
-              {VOICES[selectedLang]?.map((v) => {
-                const active = selectedVoice.name === v.name;
-                return (
-                  <button
-                    key={v.name}
-                    onClick={() => onVoiceChange(v)}
-                    className="px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all"
-                    style={{
-                      border: `1.5px solid ${active ? "#d4a843" : "#e5ddd0"}`,
-                      background: active ? "rgba(212,168,67,0.1)" : "#f5f0e8",
-                      color: active ? "#8a6018" : "#7a7080",
-                    }}
-                  >
-                    {v.label}
+            {(["Standard", "Wavenet", "Neural2", "Chirp3HD"] as VoiceTier[]).map((tier) => {
+              const tierVoices = (VOICES[selectedLang] ?? []).filter((v) =>
+                tier === "Standard"
+                  ? !v.tier || v.tier === "Standard"
+                  : v.tier === tier
+              );
+              if (!tierVoices.length) return null;
+
+              const tierLabel =
+                tier === "Wavenet" ? "WaveNet · HD"
+                : tier === "Neural2" ? "Neural2 · AI"
+                : tier === "Chirp3HD" ? "Chirp3 · HD"
+                : "Standard";
+
+              return (
+                <div key={tier}>
+                  {/* Tier header */}
+                  <div className="flex items-center gap-2 mb-1.5">
                     <span
-                      className="text-[0.6rem] font-bold px-1 rounded"
-                      style={{
-                        background:
-                          v.g === "FEMALE"
-                            ? "rgba(219,39,119,0.1)"
-                            : "rgba(37,99,235,0.1)",
-                        color: v.g === "FEMALE" ? "#be185d" : "#1d4ed8",
-                      }}
+                      className="text-[0.6rem] font-bold uppercase"
+                      style={{ color: "#9a9088", letterSpacing: "0.07em" }}
                     >
-                      {v.g === "FEMALE" ? "F" : "M"}
+                      {tierLabel}
                     </span>
-                  </button>
-                );
-              })}
-            </div>
+                    <div style={{ flex: 1, height: 1, background: "#e8e0d0" }} />
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {tierVoices.map((v) => {
+                      const active = selectedVoice.name === v.name;
+                      return (
+                        <button
+                          key={v.name}
+                          onClick={() => onVoiceChange(v)}
+                          className="px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all"
+                          style={{
+                            border: `1.5px solid ${active ? "#d4a843" : "#e5ddd0"}`,
+                            background: active ? "rgba(212,168,67,0.1)" : "#f5f0e8",
+                            color: active ? "#8a6018" : "#7a7080",
+                          }}
+                        >
+                          {v.label}
+                          <span
+                            className="text-[0.6rem] font-bold px-1 rounded"
+                            style={{
+                              background:
+                                v.g === "FEMALE"
+                                  ? "rgba(219,39,119,0.1)"
+                                  : "rgba(37,99,235,0.1)",
+                              color: v.g === "FEMALE" ? "#be185d" : "#1d4ed8",
+                            }}
+                          >
+                            {v.g === "FEMALE" ? "F" : "M"}
+                          </span>
+                          {tier === "Wavenet" && (
+                            <span
+                              className="text-[0.55rem] font-bold px-1 rounded"
+                              style={{ background: "rgba(139,92,246,0.12)", color: "#7c3aed" }}
+                            >
+                              HD
+                            </span>
+                          )}
+                          {tier === "Neural2" && (
+                            <span
+                              className="text-[0.55rem] font-bold px-1 rounded"
+                              style={{ background: "rgba(6,182,212,0.12)", color: "#0891b2" }}
+                            >
+                              AI
+                            </span>
+                          )}
+                          {tier === "Chirp3HD" && (
+                            <span
+                              className="text-[0.55rem] font-bold px-1 rounded"
+                              style={{ background: "rgba(234,88,12,0.12)", color: "#c2410c" }}
+                            >
+                              HD+
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

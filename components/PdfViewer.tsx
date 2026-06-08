@@ -283,40 +283,38 @@ export default function PdfViewer({
         className="flex justify-center overflow-y-auto p-3 sm:p-4"
         style={{ background: "#f0ebe2", maxHeight: "calc(100vh - 220px)", minHeight: "300px" }}
       >
-        {/* Wrapper keeps canvas + text layer aligned; canvas controls the displayed width */}
-        <div ref={wrapperRef} style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
-          <canvas
-            ref={canvasRef}
-            className="rounded"
-            style={{
-              maxWidth: "100%",
-              height: "auto",
-              display: "block",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
-            }}
-          />
-          {/* pdf.js text layer — transparent text spans positioned over canvas */}
-          <div
-            ref={textLayerRef}
-            className="pdf-text-layer"
-            title="Click any word to start reading from there"
-          />
-          {/* Reading-tip badge — visible only when not playing */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          {/* Wrapper keeps canvas + text layer aligned */}
+          <div ref={wrapperRef} style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
+            <canvas
+              ref={canvasRef}
+              className="rounded"
+              style={{
+                maxWidth: "100%",
+                height: "auto",
+                display: "block",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
+              }}
+            />
+            {/* pdf.js text layer — transparent text spans positioned over canvas */}
+            <div
+              ref={textLayerRef}
+              className="pdf-text-layer"
+              title="Click any word to start reading from there"
+            />
+          </div>
+
+          {/* Reading-tip — below the canvas so it never overlaps content */}
           {activeWordIdx < 0 && (
             <div
               style={{
-                position: "absolute",
-                bottom: 8,
-                left: "50%",
-                transform: "translateX(-50%)",
-                background: "rgba(26,26,46,0.72)",
-                color: "#ede0c8",
                 fontSize: "0.68rem",
-                padding: "3px 10px",
+                color: "#9a9088",
+                background: "rgba(26,26,46,0.06)",
+                padding: "3px 12px",
                 borderRadius: 999,
                 whiteSpace: "nowrap",
-                pointerEvents: "none",
-                backdropFilter: "blur(4px)",
+                border: "1px solid rgba(26,26,46,0.08)",
               }}
             >
               Click any word · Space to play

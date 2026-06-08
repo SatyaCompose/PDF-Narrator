@@ -283,6 +283,26 @@ export function usePdfReader() {
 
   // Renders the given page to an off-screen canvas at 2× scale and returns
   // a base64 JPEG string suitable for Google Vision API OCR.
+  // Returns the actual font family names embedded in the page via content.styles.
+  // Used for font-based language detection which is more reliable than Unicode analysis
+  // for Indian PDFs with custom-encoded glyphs.
+  const getPageFontFamilies = useCallback(async (pageNum: number): Promise<string[]> => {
+    const doc = pdfDocRef.current;
+    if (!doc) return [];
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const page = await (doc as any).getPage(pageNum);
+      const content = await page.getTextContent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const styles = (content.styles ?? {}) as Record<string, { fontFamily?: string }>;
+      return Object.values(styles)
+        .map((s) => s.fontFamily ?? "")
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }, []);
+
   const capturePageImage = useCallback(async (pageNum: number): Promise<string> => {
     const doc = pdfDocRef.current;
     if (!doc) return "";
@@ -345,6 +365,7 @@ export function usePdfReader() {
     goToPage,
     resetPdf,
     capturePageImage,
+    getPageFontFamilies,
     buildWordMap,
     highlightWord,
     setWordClickCallback,

@@ -95,7 +95,15 @@ input[type='range']::-moz-range-thumb {
   .reader-grid {
     grid-template-columns: 1fr !important;
   }
+  .reader-sidebar {
+    position: static !important;
+    max-height: none !important;
+  }
 }
+
+/* Hide sidebar scrollbar while keeping it functional */
+.reader-sidebar::-webkit-scrollbar { display: none; }
+.reader-sidebar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* PDF.js text layer overlay */
 .pdf-text-layer {
@@ -111,9 +119,9 @@ input[type='range']::-moz-range-thumb {
   border-radius: 4px;
 }
 
-.pdf-text-layer > span,
-.pdf-text-layer > br {
-  color: transparent;
+/* All spans inside text layer — invisible text, visible backgrounds only */
+.pdf-text-layer span {
+  color: transparent !important;
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -122,9 +130,8 @@ input[type='range']::-moz-range-thumb {
   user-select: text;
 }
 
-/* Highlighted word while reading */
+/* Highlighted word — golden background over the canvas */
 .pdf-word-hl {
-  background: rgba(212, 168, 67, 0.45) !important;
+  background: rgba(212, 168, 67, 0.5) !important;
   border-radius: 2px;
-  mix-blend-mode: multiply;
 }

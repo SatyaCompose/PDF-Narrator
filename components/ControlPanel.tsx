@@ -28,6 +28,7 @@ interface Props {
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
+  onRetry: () => void;
   onGoToBookmark: (page: number) => void;
   onDeleteBookmark: (id: string) => void;
 }
@@ -108,6 +109,7 @@ export default function ControlPanel({
   onPlay,
   onPause,
   onStop,
+  onRetry,
 }: Props) {
   const isPlaying = status === "speaking" || status === "loading";
   const isPaused = status === "paused";
@@ -270,6 +272,26 @@ export default function ControlPanel({
             title="Pause"
           >
             ⏸
+          </button>
+          <button
+            onClick={onRetry}
+            className="px-4 py-2.5 rounded-full text-sm font-medium transition-all"
+            style={{
+              background: "#f5f0e8",
+              border: "1px solid #e5ddd0",
+              color: "#9a9088",
+            }}
+            title="Re-read page from the beginning"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#d4a843";
+              e.currentTarget.style.color = "#b8922e";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#e5ddd0";
+              e.currentTarget.style.color = "#9a9088";
+            }}
+          >
+            ↺
           </button>
           <button
             onClick={onStop}

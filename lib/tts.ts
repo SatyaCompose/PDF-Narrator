@@ -6,6 +6,18 @@ export async function callTTS(
   lang: string,
   voice: Voice
 ): Promise<string> {
+  const isChirp = voice.tier === "Chirp3HD";
+
+  // Chirp3-HD voices don't accept ssmlGender or effectsProfileId,
+  // and are optimised for 48 kHz output.
+  const voiceParams = isChirp
+    ? { languageCode: lang, name: voice.name }
+    : { languageCode: lang, name: voice.name, ssmlGender: voice.g };
+
+  const audioConfig = isChirp
+    ? { audioEncoding: "MP3", sampleRateHertz: 48000 }
+    : { audioEncoding: "MP3", sampleRateHertz: 24000, effectsProfileId: ["headphone-class-device"] };
+
   const res = await fetch(
     `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
     {
@@ -13,12 +25,8 @@ export async function callTTS(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         input: { ssml },
-        voice: { languageCode: lang, name: voice.name, ssmlGender: voice.g },
-        audioConfig: {
-          audioEncoding: "MP3",
-          sampleRateHertz: 24000,
-          effectsProfileId: ["headphone-class-device"],
-        },
+        voice: voiceParams,
+        audioConfig,
       }),
     }
   );

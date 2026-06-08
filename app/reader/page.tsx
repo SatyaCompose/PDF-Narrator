@@ -11,6 +11,8 @@ import { usePdfReader } from "@/hooks/usePdfReader";
 import { usePlayback } from "@/hooks/usePlayback";
 import { VOICES, MODES } from "@/lib/voices";
 import type { Voice, ModeKey } from "@/lib/voices";
+import { detectLanguageFromText, detectLanguageFromFonts } from "@/lib/langDetect";
+import { savePrefLang, loadPrefLang, saveSessionVoice, loadSessionVoice } from "@/lib/prefs";
 import {
   saveSession,
   updateSessionPage,
@@ -37,6 +39,7 @@ interface PdfTab {
 export default function ReaderPage() {
   // ── API key ──────────────────────────────────────────────────────────────
   const [apiKey, setApiKey] = useState("");
+  const [apiKeyReady, setApiKeyReady] = useState(false);
 
   // ── Voice ────────────────────────────────────────────────────────────────
   const [selLang, setSelLang] = useState("en-IN");
@@ -67,10 +70,15 @@ export default function ReaderPage() {
   // track whether user has made reading progress (to decide if prompt is worth showing)
   const hasReadRef = useRef(false);
 
+  // ── Language auto-detect ──────────────────────────────────────────────────
+  // Prevents auto-detect from overriding a manual language selection for the
+  // currently open PDF. Reset to false whenever a new PDF is loaded.
+  const langManualRef = useRef(false);
+
   const {
     state: pdfState, canvasRef, textLayerRef,
     loadPDF, loadPDFFromData, goToPage, resetPdf, capturePageImage,
-    buildWordMap, highlightWord, setWordClickCallback,
+    getPageFontFamilies, buildWordMap, highlightWord, setWordClickCallback,
   } = usePdfReader();
 
   // ── OCR state ─────────────────────────────────────────────────────────────
@@ -89,19 +97,30 @@ export default function ReaderPage() {
     } catch {
       setApiKey("");
     }
-    // Also check localStorage fallbacks for lang/voice set from settings page
+    // Load persisted language preference (cookie-based)
     try {
-      const lsLang = localStorage.getItem("ls_lang");
-      if (lsLang) setSelLang(lsLang);
-      const lsVoice = localStorage.getItem("ls_voice");
-      if (lsVoice) {
-        const v = JSON.parse(lsVoice) as Voice;
-        setSelVoice(v);
+      const prefLang = loadPrefLang();
+      if (prefLang && VOICES[prefLang]) {
+        setSelLang(prefLang);
+        setSelVoice(VOICES[prefLang][0]);
+      } else {
+        // Fallback: check legacy localStorage keys from settings page
+        const lsLang = localStorage.getItem("ls_lang");
+        if (lsLang && VOICES[lsLang]) {
+          setSelLang(lsLang);
+          const lsVoice = localStorage.getItem("ls_voice");
+          if (lsVoice) {
+            try { setSelVoice(JSON.parse(lsVoice) as Voice); } catch { /* ignore */ }
+          } else {
+            setSelVoice(VOICES[lsLang][0]);
+          }
+        }
       }
     } catch {
       // ignore
     }
     getAllSessions().then(setSessions).catch(console.error);
+    setApiKeyReady(true);
   }, []);
 
   // ── Pending session from landing page ─────────────────────────────────────
@@ -140,6 +159,9 @@ export default function ReaderPage() {
       hardStop();
     }
     setSelVoice(v);
+    // Persist voice per-session
+    const sid = sessionIdRef.current;
+    if (sid) saveSessionVoice(sid, v.name);
   }
 
   function handleLangChange(lang: string) {
@@ -148,8 +170,44 @@ export default function ReaderPage() {
       if (playState.activeWordIdx >= 0) setStartWordIdx(playState.activeWordIdx);
       hardStop();
     }
+    langManualRef.current = true;
     setSelLang(lang);
     setSelVoice(VOICES[lang][0]);
+    savePrefLang(lang);
+  }
+
+  // Apply a detected/saved language + optional saved voice name without
+  // triggering a manual-override flag.
+  function applyLanguageAndVoice(lang: string, savedVoiceName?: string | null) {
+    setSelLang(lang);
+    const voices = VOICES[lang] ?? [];
+    if (savedVoiceName) {
+      const match = voices.find((v) => v.name === savedVoiceName);
+      if (match) { setSelVoice(match); return; }
+    }
+    if (voices.length > 0) setSelVoice(voices[0]);
+  }
+
+  // Run language auto-detection (font-based first, Unicode fallback) and apply preferences.
+  async function detectAndApplyLanguage(text: string, sid: string, pageNum: number) {
+    if (langManualRef.current) {
+      // Language was manually set — only restore the session-saved voice
+      const savedVoice = loadSessionVoice(sid);
+      if (savedVoice) {
+        const match = (VOICES[selLang] ?? []).find((v) => v.name === savedVoice);
+        if (match) setSelVoice(match);
+      }
+      return;
+    }
+
+    // Try font-based detection first — more reliable for custom-encoded Indian PDFs
+    const fonts = await getPageFontFamilies(pageNum);
+    const detected = detectLanguageFromFonts(fonts) ?? detectLanguageFromText(text);
+
+    const targetLang = detected ?? selLang;
+    const savedVoice = loadSessionVoice(sid);
+    applyLanguageAndVoice(targetLang, savedVoice);
+    if (detected) savePrefLang(detected);
   }
 
   function handleModeChange(m: ModeKey) {
@@ -361,6 +419,7 @@ export default function ReaderPage() {
   async function handleFile(file: File) {
     hardStop();
     hasReadRef.current = false;
+    langManualRef.current = false;
     setShowBookmarkPrompt(false);
     setStartWordIdx(0);
 
@@ -393,6 +452,7 @@ export default function ReaderPage() {
     const text = await resolveText(rawText, targetPage);
     setPageText(text);
     setWords(text.split(/\s+/).filter(Boolean));
+    await detectAndApplyLanguage(text, sid, targetPage);
     addTabToState({ id: sid, fileName: file.name.replace(/\.pdf$/i, ""), buf, page: targetPage, totalPages });
   }
 
@@ -400,6 +460,7 @@ export default function ReaderPage() {
   async function handleResumeById(session: SessionMeta) {
     hardStop();
     hasReadRef.current = false;
+    langManualRef.current = false;
     setShowBookmarkPrompt(false);
     setStartWordIdx(0);
 
@@ -421,6 +482,7 @@ export default function ReaderPage() {
     const text = await resolveText(rawText, session.lastPage);
     setPageText(text);
     setWords(text.split(/\s+/).filter(Boolean));
+    await detectAndApplyLanguage(text, session.id, session.lastPage);
     addTabToState({ id: session.id, fileName: session.fileName, buf: data, page: session.lastPage, totalPages: session.totalPages });
   }
 
@@ -644,6 +706,24 @@ export default function ReaderPage() {
     }
   }
 
+  function handleRetry() {
+    hardStop();
+    setStartWordIdx(0);
+    setShowBookmarkPrompt(false);
+    speakPage({
+      text: pageText,
+      words,
+      apiKey,
+      lang: selLang,
+      voice: selVoice,
+      mode,
+      rate,
+      pitch,
+      pauseMs,
+      startWordIdx: 0,
+    });
+  }
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -677,17 +757,18 @@ export default function ReaderPage() {
       }}
     >
       <div className="max-w-6xl mx-auto px-4 pb-12 pt-6">
-        <ApiKeyCard
-          apiKey={apiKey}
-          onSave={handleSaveKey}
-          selectedLang={selLang}
-          selectedVoice={selVoice}
-          onLangChange={handleLangChange}
-          onVoiceChange={handleVoiceChange}
-        />
-
+        {/* ── No PDF: full-width settings + drop zone ── */}
         {!hasPdf && (
           <>
+            <ApiKeyCard
+              apiKey={apiKey}
+              ready={apiKeyReady}
+              onSave={handleSaveKey}
+              selectedLang={selLang}
+              selectedVoice={selVoice}
+              onLangChange={handleLangChange}
+              onVoiceChange={handleVoiceChange}
+            />
             <SessionPanel
               sessions={sessions}
               onResume={handleResume}
@@ -697,12 +778,14 @@ export default function ReaderPage() {
           </>
         )}
 
+        {/* ── PDF open: PDF left, sticky sidebar right ── */}
         {hasPdf && (
           <div
             className="reader-grid grid gap-4"
             style={{
-              gridTemplateColumns: "minmax(0, 1fr) 300px",
+              gridTemplateColumns: "minmax(0, 1fr) 320px",
               animation: "slideUp 0.4s ease-out",
+              alignItems: "start",
             }}
           >
             <PdfViewer
@@ -728,30 +811,55 @@ export default function ReaderPage() {
               onNewFile={handleFile}
             />
 
-            <ControlPanel
-              mode={mode}
-              rate={rate}
-              pitch={pitch}
-              pauseMs={pauseMs}
-              status={playState.status}
-              progress={playState.progress}
-              statusMsg={playState.statusMsg}
-              charCount={pageText.length}
-              monthlyChars={monthlyChars}
-              hasApiKey={!!apiKey}
-              bookmarks={bookmarks}
-              currentPage={pdfState.curPage}
-              onModeChange={handleModeChange}
-              onRateChange={setRate}
-              onPitchChange={setPitch}
-              onPauseChange={setPauseMs}
-              onSettingsChange={() => {}}
-              onPlay={handlePlay}
-              onPause={handlePause}
-              onStop={handleStop}
-              onGoToBookmark={handleGoToBookmark}
-              onDeleteBookmark={handleDeleteBookmark}
-            />
+            {/* Sticky scrollable sidebar — all settings + playback */}
+            <div
+              className="reader-sidebar"
+              style={{
+                position: "sticky",
+                top: "1rem",
+                maxHeight: "calc(100vh - 2rem)",
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                paddingBottom: "0.5rem",
+              }}
+            >
+              <ApiKeyCard
+                apiKey={apiKey}
+                ready={apiKeyReady}
+                onSave={handleSaveKey}
+                selectedLang={selLang}
+                selectedVoice={selVoice}
+                onLangChange={handleLangChange}
+                onVoiceChange={handleVoiceChange}
+              />
+              <ControlPanel
+                mode={mode}
+                rate={rate}
+                pitch={pitch}
+                pauseMs={pauseMs}
+                status={playState.status}
+                progress={playState.progress}
+                statusMsg={playState.statusMsg}
+                charCount={pageText.length}
+                monthlyChars={monthlyChars}
+                hasApiKey={!!apiKey}
+                bookmarks={bookmarks}
+                currentPage={pdfState.curPage}
+                onModeChange={handleModeChange}
+                onRateChange={setRate}
+                onPitchChange={setPitch}
+                onPauseChange={setPauseMs}
+                onSettingsChange={() => {}}
+                onPlay={handlePlay}
+                onPause={handlePause}
+                onStop={handleStop}
+                onRetry={handleRetry}
+                onGoToBookmark={handleGoToBookmark}
+                onDeleteBookmark={handleDeleteBookmark}
+              />
+            </div>
           </div>
         )}
       </div>
