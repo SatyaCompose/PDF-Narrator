@@ -13,12 +13,11 @@ export default function Footer() {
       }}
     >
       <div
+        className="grid grid-cols-2 sm:grid-cols-4"
         style={{
           maxWidth: "72rem",
           margin: "0 auto",
           padding: "2rem 1rem",
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
           gap: "2rem",
         }}
       >
@@ -126,25 +125,14 @@ export default function Footer() {
           >
             Languages
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
             {[
-              { label: "English (IN)", script: "Indian English voices" },
-              { label: "हिन्दी", script: "Hindi voices" },
-              { label: "తెలుగు", script: "Telugu voices" },
-            ].map(({ label, script }) => (
-              <div key={label}>
-                <span
-                  style={{
-                    fontSize: "0.82rem",
-                    color: "#1a1a2e",
-                    fontWeight: 500,
-                    marginRight: "6px",
-                  }}
-                >
-                  {label}
-                </span>
-                <span style={{ fontSize: "0.72rem", color: "#9a9088" }}>{script}</span>
-              </div>
+              "English (IN)", "हिन्दी", "తెలుగు", "বাংলা",
+              "ગુજરાતી", "ಕನ್ನಡ", "മലയാളം", "मराठी", "தமிழ்", "ਪੰਜਾਬੀ",
+            ].map((label) => (
+              <span key={label} style={{ fontSize: "0.82rem", color: "#7a7080" }}>
+                {label}
+              </span>
             ))}
           </div>
         </div>

@@ -1,3 +1,5 @@
+import { trackVision } from "./usageTracker";
+
 // Unicode ranges for Indic scripts — used to detect whether text extraction
 // actually returned the right script or just garbled custom-font glyphs.
 const SCRIPT_RANGES: Record<string, [number, number]> = {
@@ -55,5 +57,6 @@ export async function visionOCR(base64: string, apiKey: string): Promise<string>
   if (!res.ok) {
     throw new Error(data.error?.message ?? "Vision API error");
   }
+  trackVision();
   return (data.responses?.[0]?.fullTextAnnotation?.text ?? "").trim();
 }

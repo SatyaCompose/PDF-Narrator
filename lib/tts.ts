@@ -1,4 +1,6 @@
 import type { Voice } from "./voices";
+import { trackTTS } from "./usageTracker";
+import type { TierId } from "./usageTracker";
 
 export async function callTTS(
   ssml: string,
@@ -37,6 +39,7 @@ export async function callTTS(
   }
 
   const data = await res.json();
+  trackTTS((voice.tier ?? "Standard") as TierId, ssml.length);
   return data.audioContent as string;
 }
 

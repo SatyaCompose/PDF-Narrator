@@ -4,6 +4,12 @@ import { useState, useEffect } from "react";
 import { testApiKey } from "@/lib/tts";
 import { LANGUAGES, VOICES } from "@/lib/voices";
 import type { Voice } from "@/lib/voices";
+import {
+  getUsage,
+  getWarnings,
+  FREE_TIER,
+} from "@/lib/usageTracker";
+import type { UsageRecord, UsageWarning } from "@/lib/usageTracker";
 
 export default function SettingsPage() {
   // ── API Key state ─────────────────────────────────────────────────────────
@@ -14,6 +20,10 @@ export default function SettingsPage() {
   });
   const [testing, setTesting] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  // ── Usage state ───────────────────────────────────────────────────────────
+  const [usage, setUsage] = useState<UsageRecord | null>(null);
+  const [warnings, setWarnings] = useState<UsageWarning[]>([]);
 
   // ── Voice & Language state ────────────────────────────────────────────────
   const [selLang, setSelLang] = useState("en-IN");
@@ -36,6 +46,11 @@ export default function SettingsPage() {
     } catch {
       setShowHelp(true);
     }
+
+    // Load usage
+    const u = getUsage();
+    setUsage(u);
+    setWarnings(getWarnings());
 
     // Load voice/lang from localStorage
     try {
@@ -135,6 +150,31 @@ export default function SettingsPage() {
             API key, language, and voice preferences
           </p>
         </div>
+
+        {/* Warning banners */}
+        {warnings.map((w) => (
+          <div
+            key={w.id}
+            style={{
+              marginBottom: "0.75rem",
+              padding: "10px 14px",
+              borderRadius: "10px",
+              background: w.exceeded ? "rgba(224,85,85,0.08)" : "rgba(224,122,58,0.08)",
+              border: `1.5px solid ${w.exceeded ? "#e05555" : "#e07a3a"}`,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              fontSize: "0.82rem",
+            }}
+          >
+            <span style={{ fontSize: "1.1rem" }}>{w.exceeded ? "🚨" : "⚠️"}</span>
+            <span style={{ color: w.exceeded ? "#c0392b" : "#b85a1a", fontWeight: 600 }}>
+              {w.exceeded
+                ? `${w.label} free tier exceeded (${Math.round(w.pct * 100)}%) — you may be charged.`
+                : `${w.label} at ${Math.round(w.pct * 100)}% of free tier — approaching the monthly limit.`}
+            </span>
+          </div>
+        ))}
 
         {/* Section 1 — API Key */}
         <div style={cardStyle}>
@@ -418,6 +458,97 @@ export default function SettingsPage() {
             These become the default voice in the Reader. You can still change them per session.
           </p>
         </div>
+        {/* Section 3 — Usage This Month */}
+        {usage && (
+          <div style={cardStyle}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "#b8922e",
+                }}
+              >
+                📊 Usage This Month
+              </p>
+              <span style={{ fontSize: "0.68rem", color: "#b0a898" }}>
+                Resets on the 1st · {usage.month}
+              </span>
+            </div>
+
+            {/* TTS rows */}
+            {(
+              [
+                { id: "Standard",  label: "Standard voices",  limit: FREE_TIER.Standard,  used: usage.Standard  },
+                { id: "Wavenet",   label: "WaveNet voices",   limit: FREE_TIER.Wavenet,   used: usage.Wavenet   },
+                { id: "Neural2",   label: "Neural2 voices",   limit: FREE_TIER.Neural2,   used: usage.Neural2   },
+                { id: "Chirp3HD",  label: "Chirp3-HD voices", limit: FREE_TIER.Chirp3HD,  used: usage.Chirp3HD  },
+              ] as { id: string; label: string; limit: number; used: number }[]
+            ).map(({ id, label, limit, used }) => {
+              const pct = Math.min(used / limit, 1);
+              const over = used > limit;
+              const warn = pct >= 0.8;
+              const barColor = over
+                ? "#e05555"
+                : warn
+                ? "#e07a3a"
+                : "#d4a843";
+              return (
+                <div key={id} style={{ marginBottom: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span style={{ fontSize: "0.78rem", color: warn ? (over ? "#c0392b" : "#b85a1a") : "#5a5060", fontWeight: warn ? 600 : 400 }}>
+                      {label}
+                      {over && <span style={{ marginLeft: "6px", fontSize: "0.65rem", background: "#e05555", color: "#fff", borderRadius: "3px", padding: "1px 5px" }}>EXCEEDED</span>}
+                      {!over && warn && <span style={{ marginLeft: "6px", fontSize: "0.65rem", background: "#e07a3a", color: "#fff", borderRadius: "3px", padding: "1px 5px" }}>NEAR LIMIT</span>}
+                    </span>
+                    <span style={{ fontSize: "0.72rem", color: "#9a9088" }}>
+                      {used.toLocaleString()} / {(limit / 1_000_000).toFixed(0)}M chars
+                    </span>
+                  </div>
+                  <div style={{ height: "6px", borderRadius: "3px", background: "#e8e0d0", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct * 100}%`, borderRadius: "3px", background: barColor, transition: "width 0.4s" }} />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Vision row */}
+            {(() => {
+              const used = usage.Vision;
+              const limit = FREE_TIER.Vision;
+              const pct = Math.min(used / limit, 1);
+              const over = used > limit;
+              const warn = pct >= 0.8;
+              const barColor = over ? "#e05555" : warn ? "#e07a3a" : "#4a8fff";
+              return (
+                <div style={{ marginBottom: "4px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span style={{ fontSize: "0.78rem", color: warn ? (over ? "#c0392b" : "#b85a1a") : "#5a5060", fontWeight: warn ? 600 : 400 }}>
+                      Vision OCR (scanned PDFs)
+                      {over && <span style={{ marginLeft: "6px", fontSize: "0.65rem", background: "#e05555", color: "#fff", borderRadius: "3px", padding: "1px 5px" }}>EXCEEDED</span>}
+                      {!over && warn && <span style={{ marginLeft: "6px", fontSize: "0.65rem", background: "#e07a3a", color: "#fff", borderRadius: "3px", padding: "1px 5px" }}>NEAR LIMIT</span>}
+                    </span>
+                    <span style={{ fontSize: "0.72rem", color: "#9a9088" }}>
+                      {used.toLocaleString()} / {limit.toLocaleString()} pages
+                    </span>
+                  </div>
+                  <div style={{ height: "6px", borderRadius: "3px", background: "#e8e0d0", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct * 100}%`, borderRadius: "3px", background: barColor, transition: "width 0.4s" }} />
+                  </div>
+                </div>
+              );
+            })()}
+
+            <p style={{ margin: "10px 0 0", fontSize: "0.68rem", color: "#b0a898", lineHeight: 1.5 }}>
+              Character counts include SSML markup. Vision OCR only triggers for scanned/image PDFs.
+              <br />
+              Free tier limits: Standard 4M · WaveNet / Neural2 / Chirp3-HD 1M chars · Vision 1K pages per month.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

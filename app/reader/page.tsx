@@ -778,7 +778,7 @@ export default function ReaderPage() {
             <ApiKeyCard
               apiKey={apiKey}
               ready={apiKeyReady}
-              onSave={handleSaveKey}
+
               selectedLang={selLang}
               selectedVoice={selVoice}
               onLangChange={handleLangChange}
@@ -845,7 +845,7 @@ export default function ReaderPage() {
               <ApiKeyCard
                 apiKey={apiKey}
                 ready={apiKeyReady}
-                onSave={handleSaveKey}
+  
                 selectedLang={selLang}
                 selectedVoice={selVoice}
                 onLangChange={handleLangChange}

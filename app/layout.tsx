@@ -4,9 +4,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
-  title: "PDF Narrator — Indian Voices",
+  title: "PDF Narrator",
   description:
-    "Read PDFs aloud in Indian English, Hindi, and Telugu with natural pacing and word-level highlighting.",
+    "Read PDFs aloud in 10 Indian languages with natural pacing and word-level highlighting.",
 };
 
 export default function RootLayout({

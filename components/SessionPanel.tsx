@@ -11,6 +11,22 @@ interface Props {
   onUnpin: (id: string) => void;
 }
 
+// Shared delete button for both pinned and recent cards
+function DeleteButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Remove from library"
+      className="text-xs transition-all"
+      style={{ color: "#cec4b4", background: "none", border: "none", cursor: "pointer", padding: "2px", lineHeight: 1 }}
+      onMouseEnter={(e) => (e.currentTarget.style.color = "#dc2626")}
+      onMouseLeave={(e) => (e.currentTarget.style.color = "#cec4b4")}
+    >
+      ×
+    </button>
+  );
+}
+
 function progressPct(s: SessionMeta) {
   if (!s.totalPages) return 0;
   return Math.round(((s.lastPage - 1) / s.totalPages) * 100);
@@ -118,7 +134,10 @@ export default function SessionPanel({ sessions, onResume, onDelete, onPin, onUn
                       </button>
                     </div>
                     <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                      <PinButton pinned onClick={() => onUnpin(s.id)} />
+                      <div className="flex items-center gap-1.5">
+                        <PinButton pinned onClick={() => onUnpin(s.id)} />
+                        <DeleteButton onClick={() => onDelete(s.id)} />
+                      </div>
                       <button
                         onClick={() => onResume(s)}
                         className="px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all"
@@ -275,16 +294,9 @@ function RecentCard({
         </button>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <PinButton pinned={false} onClick={() => onPin(s.id)} />
-          <button
-            onClick={() => onDelete(s.id)}
-            className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ color: "#cec4b4" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "#dc2626")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "#cec4b4")}
-            title="Remove"
-          >
-            ×
-          </button>
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <DeleteButton onClick={() => onDelete(s.id)} />
+          </span>
         </div>
       </div>
     </div>

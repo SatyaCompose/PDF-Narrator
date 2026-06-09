@@ -4,7 +4,6 @@ import Link from "next/link";
 import { LANGUAGES, VOICES } from "@/lib/voices";
 import type { Voice, VoiceTier } from "@/lib/voices";
 
-// English names shown as sublabels on each language tile
 const LANG_EN: Record<string, string> = {
   "en-IN": "India",
   "hi-IN": "Hindi",
@@ -28,7 +27,6 @@ const TIER_META: Record<string, { label: string; badge: string; badgeColor: stri
 interface Props {
   apiKey: string;
   ready: boolean;
-  onSave: (key: string) => void;
   selectedLang: string;
   selectedVoice: Voice;
   onLangChange: (lang: string) => void;

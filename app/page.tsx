@@ -128,7 +128,7 @@ export default function LandingPage() {
             lineHeight: 1.6,
           }}
         >
-          Reads PDFs aloud in Indian English, Hindi, and Telugu · Natural pacing
+          Reads PDFs aloud in 10 Indian languages · Natural pacing
           · Word-level highlighting
         </p>
 

@@ -6,6 +6,8 @@ import Link from "next/link";
 import {
   getAllSessions,
   deleteSession,
+  pinSession,
+  unpinSession,
   relativeTime,
   formatBytes,
 } from "@/lib/db";
@@ -31,6 +33,16 @@ export default function LibraryPage() {
   async function handleDelete(id: string) {
     await deleteSession(id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  async function handlePin(id: string) {
+    await pinSession(id);
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, pinned: true } : s));
+  }
+
+  async function handleUnpin(id: string) {
+    await unpinSession(id);
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, pinned: false } : s));
   }
 
   function handleResume(s: SessionMeta) {
@@ -148,30 +160,32 @@ export default function LibraryPage() {
                   gap: "10px",
                 }}
               >
-                {/* File name */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    minWidth: 0,
-                  }}
-                >
+                {/* File name + pin */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
                   <span style={{ fontSize: "1.2rem", flexShrink: 0 }}>📄</span>
                   <p
                     style={{
-                      margin: 0,
-                      fontWeight: 500,
-                      fontSize: "0.9rem",
-                      color: "#1a1a2e",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      margin: 0, flex: 1, fontWeight: 500, fontSize: "0.9rem",
+                      color: "#1a1a2e", overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}
                     title={s.fileName}
                   >
                     {s.fileName}
                   </p>
+                  <button
+                    onClick={() => s.pinned ? handleUnpin(s.id) : handlePin(s.id)}
+                    title={s.pinned ? "Pinned — click to unpin" : "Pin to keep forever"}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      fontSize: "1rem", lineHeight: 1, padding: "2px", flexShrink: 0,
+                      opacity: s.pinned ? 1 : 0.3, transition: "opacity 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = s.pinned ? "1" : "0.3")}
+                  >
+                    📌
+                  </button>
                 </div>
 
                 {/* Meta */}
