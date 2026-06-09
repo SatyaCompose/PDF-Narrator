@@ -72,6 +72,8 @@ export default function ReaderPage() {
   const [showBookmarkPrompt, setShowBookmarkPrompt] = useState(false);
   // track whether user has made reading progress (to decide if prompt is worth showing)
   const hasReadRef = useRef(false);
+  // set true while auto-advance is navigating to the next page; blocks manual play
+  const autoAdvancingRef = useRef(false);
 
   // ── Language auto-detect ──────────────────────────────────────────────────
   // Prevents auto-detect from overriding a manual language selection for the
@@ -557,6 +559,7 @@ export default function ReaderPage() {
   }
 
   function handleWordClick(idx: number) {
+    if (autoAdvancingRef.current) return;
     setStartWordIdx(idx);
     const s = currentStatusRef.current;
     if (s === "speaking" || s === "paused" || s === "loading") {
@@ -653,6 +656,7 @@ export default function ReaderPage() {
   }
 
   const handlePlay = useCallback(() => {
+    if (autoAdvancingRef.current) return;
     const liveStatus = currentStatusRef.current;
     if (liveStatus === "paused") {
       resume();
@@ -687,8 +691,12 @@ export default function ReaderPage() {
     if (playState.status !== "done") return;
     if (pdfState.curPage >= pdfState.totalPages) return;
 
+    autoAdvancingRef.current = true;
     handlePageChange(1).then((result) => {
+      autoAdvancingRef.current = false;
       if (!result) return;
+      // Bail if the user manually triggered playback during the navigation gap
+      if (currentStatusRef.current !== "idle") return;
       speakPage({
         text: result.text,
         words: result.words,

@@ -66,17 +66,26 @@ export function cleanPageTextFromItems(items: PdfTextItem[]): string {
     // Strip tiny text: footnote numbers, image labels, superscripts
     if (avgH > 0 && item.height > 0 && item.height < avgH * 0.45) return false;
 
-    // Strip header/footer zone items that are short or look like noise
+    // Strip header/footer zone items that are clearly noise (very short, near edge)
     if (yRange > 20) {
       const y = item.transform[5];
       const nearEdge = y <= minY + edgeMargin || y >= maxY - edgeMargin;
-      if (nearEdge && t.length < 25) return false;
+      if (nearEdge && t.length < 10) return false;
     }
 
     return true;
   });
 
-  return kept
+  // Sort top-to-bottom (PDF y=0 is bottom, so higher y = higher on page),
+  // then left-to-right within the same line, so reading order is preserved
+  // regardless of the internal PDF item sequence.
+  const sorted = kept.slice().sort((a, b) => {
+    const ya = a.transform[5], yb = b.transform[5];
+    if (Math.abs(ya - yb) > 4) return yb - ya;          // different lines
+    return a.transform[4] - b.transform[4];              // same line: left → right
+  });
+
+  return sorted
     .map((i) => i.str)
     .join(" ")
     .replace(/\s+/g, " ")
